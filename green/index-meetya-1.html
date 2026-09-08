@@ -1,0 +1,1383 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Слова — точечная сетка</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.13/p5.min.js" defer></script>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #0e0f12;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 14px;
+      padding: 10px 12px 16px;
+      color: #8a8f99;
+      font: 13px/1.2 'PT Mono', monospace;
+    }
+    /* Сцена сама уступает столько места, сколько реально занял блок
+       управления (у него auto-высота, растёт с числом строк controls),
+       и заполняет всё, что осталось, сохраняя пропорции 16:9 — без
+       подгонки под конкретное число рядов controls магической константой,
+       которая ломается при каждом новом контроле или переносе строки. */
+    #stage {
+      flex: 1 1 0;
+      min-height: 0;
+      max-width: 100%;
+      aspect-ratio: 16 / 9;
+    }
+    #controls {
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      width: min(100%, 900px);
+      padding: 0 12px;
+    }
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+    .group-title {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #5a5f69;
+    }
+    .group-row {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px 26px;
+    }
+    .group-body {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+    }
+    .chaos-frame {
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .chaos-btn {
+      background: linear-gradient(180deg, #ff9a3d, #ff7a10);
+      border: 1px solid #a8480a;
+      border-radius: 6px;
+      color: #2a1400;
+      font: 700 13px/1.2 'PT Mono', monospace;
+      padding: 8px 20px;
+      cursor: pointer;
+      letter-spacing: 0.04em;
+      box-shadow: 0 3px 0 #9a3f08, 0 5px 8px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+      transform: translateY(0);
+      transition: transform 0.06s ease, box-shadow 0.06s ease, background 0.15s ease, color 0.15s ease;
+    }
+    .chaos-btn:hover {
+      background: linear-gradient(180deg, #ffe066, #ffcc00);
+      border-color: #cc9900;
+      color: #2a2000;
+    }
+    .chaos-btn:active {
+      transform: translateY(3px);
+      box-shadow: 0 0 0 #9a3f08, inset 0 2px 5px rgba(0, 0, 0, 0.4);
+    }
+    #controls label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      white-space: nowrap;
+    }
+    #controls input[type="range"] {
+      width: 168px;
+      accent-color: #ff7a50;
+    }
+    #controls input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: #ff7a50;
+      cursor: pointer;
+    }
+    .control-value {
+      display: inline-block;
+      min-width: 2.6em;
+      color: #ff7a50;
+      font-variant-numeric: tabular-nums;
+    }
+    #controls .hsb-control {
+      gap: 9px;
+    }
+    .hsb-wheel {
+      position: relative;
+      width: 44px;
+      height: 44px;
+      flex: 0 0 44px;
+      border-radius: 50%;
+      cursor: crosshair;
+      touch-action: none;
+      background:
+        radial-gradient(circle, #e6e8ee 0 0, transparent 70%),
+        conic-gradient(#ff5050, #ff7a50, #ffe650, #58e878, #55dfff, #5aa9ff, #bd72ff, #ff5aa8, #ff5050);
+    }
+    .hsb-wheel::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: radial-gradient(circle, #e6e8ee 0, transparent 10%, transparent 100%);
+      pointer-events: none;
+    }
+    .hsb-dot {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      border: 2px solid #e6e8ee;
+      border-radius: 50%;
+      box-shadow: 0 0 0 1px #0e0f12;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+    canvas {
+      display: block;
+      width: 100% !important;
+      height: 100% !important;
+    }
+  </style>
+</head>
+<body>
+  <main id="stage" aria-label="Слова, собранные в строгую сетку и превращающиеся в точки"></main>
+
+  <div id="controls">
+    <div class="control-group">
+      <div class="group-title">визуализация</div>
+      <div class="group-body">
+        <div class="group-row" id="vizGroup">
+          <label>плотность точек
+            <input id="density" type="range" min="0" max="100" value="60" />
+            <span class="control-value" id="densityValue">60</span>
+          </label>
+          <label>скорость движения
+            <input id="speed" type="range" min="0" max="200" value="100" />
+            <span class="control-value" id="speedValue">100</span>
+          </label>
+          <label>вихрь
+            <input id="vortex" type="range" min="0" max="100" value="100" />
+            <span class="control-value" id="vortexValue">100</span>
+          </label>
+          <label>удаленность
+            <input id="distance" type="range" min="0" max="100" value="100" />
+            <span class="control-value" id="distanceValue">100</span>
+          </label>
+          <label>связность
+            <input id="cohesion" type="range" min="0" max="100" value="0" />
+            <span class="control-value" id="cohesionValue">0</span>
+          </label>
+          <label>количество линий
+            <input id="links" type="range" min="0" max="100" value="0" />
+            <span class="control-value" id="linksValue">0</span>
+          </label>
+          <label>свечение
+            <input id="glow" type="range" min="0" max="100" value="45" />
+            <span class="control-value" id="glowValue">45</span>
+          </label>
+          <label>шлейф
+            <input id="trail" type="range" min="0" max="100" value="80" />
+            <span class="control-value" id="trailValue">80</span>
+          </label>
+          <label>присутствие
+            <input id="presence" type="range" min="0" max="100" value="0" />
+            <span class="control-value" id="presenceValue">0</span>
+          </label>
+          <label class="hsb-control">HSB облака
+            <span id="hsbWheel" class="hsb-wheel" role="slider" aria-label="Оттенок и насыщенность облака точек">
+              <span id="hsbDot" class="hsb-dot"></span>
+            </span>
+          </label>
+        </div>
+        <div class="chaos-frame">
+          <button id="chaosBtn" type="button" class="chaos-btn">Хаос</button>
+        </div>
+      </div>
+    </div>
+    <div class="control-group">
+      <div class="group-title">звук</div>
+      <div class="group-row">
+        <label>звук вкл
+          <input id="soundEnabled" type="checkbox" />
+        </label>
+        <label>громкость
+          <input id="volume" type="range" min="0" max="100" value="50" />
+          <span class="control-value" id="volumeValue" data-suffix="%">50%</span>
+        </label>
+        <label>частота
+          <input id="frequency" type="range" min="0" max="100" value="15" />
+          <span class="control-value" id="frequencyValue" data-suffix="%">15%</span>
+        </label>
+        <label>дилей
+          <input id="delay" type="range" min="0" max="100" value="60" />
+          <span class="control-value" id="delayValue" data-suffix="%">60%</span>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const FALLBACK_WORDS = [
+      'понимание', 'защита', 'общение', 'страсть', 'тишина',
+      'забота', 'нежность', 'радость', 'щедрость', 'близость',
+      'осознание', 'охрана', 'диалог', 'любовь', 'покой',
+      'внимание', 'ласка', 'счастье', 'бескорыстие', 'родство',
+      'ясность', 'безопасность', 'беседа', 'обожание', 'мир',
+      'участие', 'теплота', 'блаженство', 'великодушие', 'связь',
+      'мудрость', 'уверенность', 'дружба', 'восхищение', 'спокойствие',
+      'помощь', 'уют', 'удовольствие', 'доброта', 'привязанность',
+      'знание', 'надежность', 'товарищество', 'благоговение', 'умиротворение',
+      'содействие', 'утешение', 'удовлетворение', 'добро', 'доверие',
+      'опыт', 'стабильность', 'приятельство', 'восторг', 'безмятежность',
+      'подмога', 'успокоение', 'похвала', 'благо', 'единство',
+      'правда', 'опора', 'братство', 'почтение', 'равновесие',
+      'поддержка', 'облегчение', 'одобрение', 'польза', 'единение',
+      'честность', 'покровительство', 'общность', 'уважение', 'баланс',
+      'сочувствие', 'сопереживание', 'принятие', 'справедливость', 'жизнь',
+      'открытость', 'опека', 'солидарность', 'эмоция', 'гармония',
+      'сострадание', 'сердце', 'благодарность', 'верность', 'эмпатия',
+      'спасение', 'искренность', 'сплоченность', 'переживание', 'согласие',
+      'милосердие', 'душа', 'признательность', 'преданность', 'чувство'
+    ];
+
+    const PALETTE = {
+      background: '#0e0f12',
+      light: '#e6e8ee',
+      muted: '#8a8f99',
+      orange: '#ff7a50',
+      blue: '#5aa9ff'
+    };
+
+    const COLS = 5;
+    const HOLD_MS = 4400;
+    const STAGGER_MS = 55;
+    const CRUMBLE_MS = 1750;
+    const DOT_STEP = 4;
+    const DOT_SIZE = 3.2;
+    const FLOW_IN_MS = 2600;
+    const MAX_SPEED = 2.0;
+    const TRAIL_ALPHA = 52;
+    const SHATTER_AT_MS = 3000;    // через сколько после загрузки страницы слова разом раскалываются
+    const SHATTER_DURATION_MS = 650; // резкий, короткий вылет осколка к своей точке на экране
+    const SHATTER_MIN_DIST = 220;  // разлёт хаотичный: у каждой точки своя, сеяная случайная дальность
+    const SHATTER_MAX_DIST = 620;
+    const FIELD_CELL = 40;
+    const FIELD_WAVE = 0.055;
+    const LINK_RADIUS = 64;
+    const LINK_MIN = 20;
+    const LINK_WANTED = 46;
+    const LINK_MAX_SHARE = 0.22;
+    const DIST_MIN_SHARE = 0.10;
+    const DIST_MAX_SHARE = 0.80;
+    const COHESION_RATE = 0.03;     // прирост тяги к центру слова на пиксель удаления
+    const COHESION_MAX_PULL = 1.6;  // потолок этой тяги, чтобы не забить остальные силы
+    const COLLIDE_DIST = DOT_SIZE;       // центры ближе этого — точки касаются
+    const COLLIDE_CELL = DOT_SIZE * 4;   // ячейка сетки поиска соседних точек
+    const FLASH_MS = 100;                // вспышка при столкновении держится 0,1с
+    const CHIME_VOICES = 8;              // столько «хрустальных» голосов может звучать разом
+    const CHIME_MIN_GAP_MS = 90;         // не даёт вспышкам столкновений слиться в шум
+    const CHIME_FREQ_AT_0 = 100;         // ползунок «частота» на 0
+    const CHIME_FREQ_AT_100 = 800;       // ползунок «частота» на 100%
+    const CHIME_PARTIAL_MIN = 1.004;     // второй тон почти в унисон с первым — так рождается
+    const CHIME_PARTIAL_MAX = 1.012;     // медленное биение, «пение» бокала, а не бряцание металла
+    const CHIME_ATTACK = 0.006;          // мягкий, но быстрый удар — не щелчок и не нарастание
+    const CHIME_DECAY = 0.55;            // долгое, тающее пение, как у настоящего хрусталя
+    const CHIME_PEAK = 0.07;             // тихо — фоновый отблеск звука, а не акцент
+    const CHIME_PARTIAL_GAIN = 0.85;     // почти равен основному тону — иначе биения не слышно
+    const CHIME_THIRD_RATIO = Math.pow(2, -4 / 12); // большая терция вниз (12-тон. равномерный строй)
+    const CHIME_THIRD_GAIN = 0.7;        // тише основного тона — подголосок, а не дублёр
+    const CHIME_FOURTH_RATIO = Math.pow(2, -2 / 12); // ещё целый тон вниз — уже от третьего тона
+    const CHIME_FOURTH_GAIN = 0.55;      // самый тихий и самый низкий голос в звоне
+    const CHIME_FIFTH_RATIO = Math.pow(2, 7 / 12);   // чистая квинта вверх от основного тона — достраивает аккорд
+    const CHIME_FIFTH_GAIN = 0.5;        // тише основного тона, добавляет объём сверху
+    const CHIME_OCTAVE_RATIO = 2;        // октава вверх от основного тона — завершает звучание аккорда
+    const CHIME_OCTAVE_GAIN = 0.35;      // самый тихий и самый высокий голос в аккорде
+
+    let loadedWords = [];
+    let words = [];
+    let pieces = [];
+    let startedAt = 0;
+    let shatterTriggered = false;
+    let field = null;
+    let fieldGain = 0;
+    let activePoints = [];
+    let liveScratch = [];
+    let linkGrid = new Map();
+    let collideGrid = new Map();
+    let nextPointId = 0;
+    let audioCtx = null;
+    let chimeVoices = [];
+    let nextChimeVoice = 0;
+    let lastChimeAt = -Infinity;
+    let audioReady = false;
+    let densityInput = null;
+    let speedInput = null;
+    let vortexInput = null;
+    let distanceInput = null;
+    let cohesionInput = null;
+    let linksInput = null;
+    let glowInput = null;
+    let trailInput = null;
+    let presenceInput = null;
+    let volumeInput = null;
+    let frequencyInput = null;
+    let soundEnabledInput = null;
+    let delayInput = null;
+    let delayNode = null;
+    let delayFeedback = null;
+    let delayWet = null;
+    // Камера как вход. На нуле камеры нет вовсе. Выше нуля движение в кадре
+    // собирает точки обратно в буквы, покой отпускает их в поле.
+    let cam = null;
+    let camReady = false;
+    let camPrev = null;
+    let motion = 0;      // сглаженная энергия движения в кадре, 0..1
+    let assembly = 0;    // 0 — точки свободны, 1 — точки стоят в буквах
+    // Значок присутствия: маленькая контурная фигура в правом нижнем углу.
+    // Каждая часть загорается от движения в своей зоне кадра. Кадр зеркальный,
+    // как отражение: правая рука зрителя — правая рука фигуры.
+    const zones = { head: 0, torso: 0, left: 0, right: 0 };
+    let presenceAt = 0;
+    const CAM_W = 48;
+    const CAM_H = 27;
+    let cloudHue = 17;
+    let cloudSaturation = 68;
+    let placeHsbDot = null;
+
+    function preload() {
+      if (window.location.protocol === 'file:') {
+        loadedWords = FALLBACK_WORDS.slice();
+        return;
+      }
+
+      try {
+        loadedWords = loadStrings(
+          'слова.txt',
+          lines => { loadedWords = lines; },
+          () => { loadedWords = FALLBACK_WORDS.slice(); }
+        );
+      } catch (err) {
+        loadedWords = FALLBACK_WORDS.slice();
+      }
+    }
+
+    function setup() {
+      const canvas = createCanvas(1280, 720);
+      canvas.parent('stage');
+      pixelDensity(1);
+      frameRate(30);
+      randomSeed(7);
+      noiseSeed(7);
+      textFont('PT Mono');
+      textAlign(CENTER, CENTER);
+      noStroke();
+
+      words = (loadedWords && loadedWords.length ? loadedWords : FALLBACK_WORDS)
+        .map(line => line.trim())
+        .filter(Boolean);
+
+      buildGrid();
+      buildField();
+      densityInput = document.getElementById('density');
+      speedInput = document.getElementById('speed');
+      vortexInput = document.getElementById('vortex');
+      distanceInput = document.getElementById('distance');
+      cohesionInput = document.getElementById('cohesion');
+      linksInput = document.getElementById('links');
+      glowInput = document.getElementById('glow');
+      trailInput = document.getElementById('trail');
+      presenceInput = document.getElementById('presence');
+      volumeInput = document.getElementById('volume');
+      frequencyInput = document.getElementById('frequency');
+      soundEnabledInput = document.getElementById('soundEnabled');
+      delayInput = document.getElementById('delay');
+      setupHsbWheel();
+      setupChaosButton();
+      setupChimeVoices();
+      window.addEventListener('pointerdown', unlockAudioOnce);
+      window.addEventListener('keydown', unlockAudioOnce);
+      startedAt = millis();
+    }
+
+    // Голосовой пул для звона стекла при столкновениях — на чистом Web
+    // Audio API, без p5.sound: осцилляторы и gain-узлы не требуют никаких
+    // AudioWorklet-модулей, поэтому спокойно работают и при открытии файла
+    // двойным кликом (file://), где загрузка worklet-скриптов через blob
+    // браузером запрещена. Несколько голосов крутятся всё время на нулевой
+    // громкости и переиспользуются по кругу — короткие звоны не создают
+    // новые узлы на каждое столкновение, а просто перезапускают готовый.
+    function setupChimeVoices() {
+      try {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        audioCtx = new Ctx();
+
+        // Общая шина delay: часть звона уходит в задержку, зацикливается
+        // сама на себя (затухающее эхо) и возвращается в общий выход —
+        // сила эффекта целиком регулируется ползунком «дилей».
+        delayNode = audioCtx.createDelay(1.0);
+        delayNode.delayTime.value = 0.26;
+        delayFeedback = audioCtx.createGain();
+        delayFeedback.gain.value = 0;
+        delayWet = audioCtx.createGain();
+        delayWet.gain.value = 0;
+        delayNode.connect(delayFeedback).connect(delayNode);
+        delayNode.connect(delayWet).connect(audioCtx.destination);
+
+        for (let i = 0; i < CHIME_VOICES; i++) {
+          const tone = audioCtx.createOscillator();
+          const tonePartial = audioCtx.createOscillator();
+          const toneThird = audioCtx.createOscillator();
+          const toneFourth = audioCtx.createOscillator();
+          const toneFifth = audioCtx.createOscillator();
+          const toneOctave = audioCtx.createOscillator();
+          const toneGain = audioCtx.createGain();
+          const partialGain = audioCtx.createGain();
+          const thirdGain = audioCtx.createGain();
+          const fourthGain = audioCtx.createGain();
+          const fifthGain = audioCtx.createGain();
+          const octaveGain = audioCtx.createGain();
+          tone.type = 'sine';
+          tonePartial.type = 'sine';
+          toneThird.type = 'sine';
+          toneFourth.type = 'sine';
+          toneFifth.type = 'sine';
+          toneOctave.type = 'sine';
+          toneGain.gain.value = 0;
+          partialGain.gain.value = 0;
+          thirdGain.gain.value = 0;
+          fourthGain.gain.value = 0;
+          fifthGain.gain.value = 0;
+          octaveGain.gain.value = 0;
+          tone.connect(toneGain).connect(audioCtx.destination);
+          tonePartial.connect(partialGain).connect(audioCtx.destination);
+          toneThird.connect(thirdGain).connect(audioCtx.destination);
+          toneFourth.connect(fourthGain).connect(audioCtx.destination);
+          toneFifth.connect(fifthGain).connect(audioCtx.destination);
+          toneOctave.connect(octaveGain).connect(audioCtx.destination);
+          toneGain.connect(delayNode);
+          partialGain.connect(delayNode);
+          thirdGain.connect(delayNode);
+          fourthGain.connect(delayNode);
+          fifthGain.connect(delayNode);
+          octaveGain.connect(delayNode);
+          tone.start();
+          tonePartial.start();
+          toneThird.start();
+          toneFourth.start();
+          toneFifth.start();
+          toneOctave.start();
+          chimeVoices.push({
+            tone, partial: tonePartial, third: toneThird, fourth: toneFourth, fifth: toneFifth, octave: toneOctave,
+            toneGain, partialGain, thirdGain, fourthGain, fifthGain, octaveGain
+          });
+        }
+      } catch (err) {
+        chimeVoices = [];
+      }
+    }
+
+    // Браузер не даёт звуку играть без жеста пользователя — ловим первый
+    // клик или нажатие клавиши где угодно на странице и один раз включаем
+    // звук через него, без всякой подсказки на экране.
+    function unlockAudioOnce() {
+      window.removeEventListener('pointerdown', unlockAudioOnce);
+      window.removeEventListener('keydown', unlockAudioOnce);
+      try {
+        if (audioCtx) audioCtx.resume().then(() => { audioReady = true; });
+      } catch (err) {
+        // звук недоступен — на картинку это никак не влияет
+      }
+    }
+
+    // Точное затухание амплитуды одного тона: атака и спад планируются
+    // напрямую через Web Audio, а не плавным .value=, чтобы момент удара
+    // был резким («тинь»), а не смазанным плавным нарастанием.
+    function ringChimeGain(gainParam, peak, now) {
+      gainParam.cancelScheduledValues(now);
+      gainParam.setValueAtTime(gainParam.value, now);
+      gainParam.linearRampToValueAtTime(peak, now + CHIME_ATTACK);
+      gainParam.linearRampToValueAtTime(0, now + CHIME_ATTACK + CHIME_DECAY);
+    }
+
+    // Один тихий звон хрустального бокала: два почти совпадающих по высоте
+    // тона (как два собственных колебания стенки бокала) медленно бьются
+    // друг о друга — это и слышно как «пение» стекла, а не как удар, плюс
+    // третий, более тихий тон на большую терцию ниже — подголосок, который
+    // делает звон объёмнее. Все тона высоко в регистре, но негромкие, и
+    // тают несколько сотен миллисекунд. Голос берётся из пула по кругу.
+    function triggerGlassChime(strength) {
+      if (soundEnabledInput && !soundEnabledInput.checked) return;
+      if (!audioReady || !chimeVoices.length) return;
+      try {
+        const voice = chimeVoices[nextChimeVoice];
+        nextChimeVoice = (nextChimeVoice + 1) % chimeVoices.length;
+
+        const freqPos = readControl(frequencyInput, 15) / 100;
+        const baseFreq = CHIME_FREQ_AT_0 * Math.pow(CHIME_FREQ_AT_100 / CHIME_FREQ_AT_0, freqPos);
+        const ratio = random(CHIME_PARTIAL_MIN, CHIME_PARTIAL_MAX);
+        const now = audioCtx.currentTime;
+        voice.tone.frequency.setValueAtTime(baseFreq, now);
+        voice.partial.frequency.setValueAtTime(baseFreq * ratio, now);
+        const thirdFreq = baseFreq * CHIME_THIRD_RATIO;
+        voice.third.frequency.setValueAtTime(thirdFreq, now);
+        voice.fourth.frequency.setValueAtTime(thirdFreq * CHIME_FOURTH_RATIO, now);
+        voice.fifth.frequency.setValueAtTime(baseFreq * CHIME_FIFTH_RATIO, now);
+        voice.octave.frequency.setValueAtTime(baseFreq * CHIME_OCTAVE_RATIO, now);
+
+        const loud = constrain(strength / 2.2, 0.14, 1);
+        const volume = readControl(volumeInput, 50) / 100;
+        const peak = CHIME_PEAK * loud * volume;
+        ringChimeGain(voice.toneGain.gain, peak, now);
+        ringChimeGain(voice.partialGain.gain, peak * CHIME_PARTIAL_GAIN, now);
+        ringChimeGain(voice.thirdGain.gain, peak * CHIME_THIRD_GAIN, now);
+        ringChimeGain(voice.fourthGain.gain, peak * CHIME_FOURTH_GAIN, now);
+        ringChimeGain(voice.fifthGain.gain, peak * CHIME_FIFTH_GAIN, now);
+        ringChimeGain(voice.octaveGain.gain, peak * CHIME_OCTAVE_GAIN, now);
+
+        if (delayWet && delayFeedback) {
+          const delayAmount = readControl(delayInput, 0) / 100;
+          delayWet.gain.setValueAtTime(delayAmount * 0.5, now);
+          delayFeedback.gain.setValueAtTime(delayAmount > 0 ? 0.2 + delayAmount * 0.25 : 0, now);
+        }
+      } catch (err) {
+        // звук — необязательная надстройка, её сбой не должен ронять анимацию
+      }
+    }
+
+    function buildGrid() {
+      pieces = [];
+      const rows = Math.ceil(words.length / COLS);
+      const cellW = width / COLS;
+      const cellH = height / rows;
+
+      words.forEach((label, index) => {
+        const col = index % COLS;
+        const row = Math.floor(index / COLS);
+        const cx = col * cellW + cellW / 2;
+        const cy = row * cellH + cellH / 2;
+        const fontSize = fitTextSize(label, cellW - 24, Math.min(56, cellH * 0.62));
+        const colorName = index % 13 === 4 ? 'orange' : index % 11 === 2 ? 'blue' : 'light';
+        const points = sampleWord(label, fontSize, cellW - 18, cellH - 12);
+
+        // Точка навсегда помнит слово, из которого возникла: индекс и текст
+        // слова записаны один раз при рождении и больше нигде не меняются,
+        // поэтому в любой момент времени можно узнать происхождение точки.
+        for (const point of points) {
+          point.px = cx + point.x;
+          point.py = cy + point.y;
+          point.wordIndex = index;
+          point.word = label;
+        }
+
+        pieces.push({
+          label,
+          cx,
+          cy,
+          fontSize,
+          colorName,
+          points,
+          delay: (row + col) * STAGGER_MS
+        });
+      });
+    }
+
+    function fitTextSize(label, maxWidth, preferred) {
+      let size = preferred;
+      textSize(size);
+      while (textWidth(label) > maxWidth && size > 30) {
+        size -= 1;
+        textSize(size);
+      }
+      return size;
+    }
+
+    let sampler = null;
+
+    function sampleWord(label, fontSize, boxW, boxH) {
+      const w = Math.floor(boxW);
+      const h = Math.floor(boxH);
+      if (!sampler || sampler.width !== w || sampler.height !== h) {
+        sampler = createGraphics(w, h);
+        sampler.pixelDensity(1);
+      }
+      const layer = sampler;
+      layer.clear();
+      layer.textFont('PT Mono');
+      layer.textSize(fontSize);
+      layer.textAlign(CENTER, CENTER);
+      layer.noStroke();
+      layer.fill(255);
+      layer.text(label, layer.width / 2, layer.height / 2 - 1);
+      layer.loadPixels();
+
+      const result = [];
+      for (let y = 1; y < layer.height - 1; y += DOT_STEP) {
+        for (let x = 1; x < layer.width - 1; x += DOT_STEP) {
+          const alpha = layer.pixels[(x + y * layer.width) * 4 + 3];
+          if (alpha > 90) {
+            result.push({
+              id: nextPointId++,
+              x: x - layer.width / 2,
+              y: y - layer.height / 2,
+              px: 0,
+              py: 0,
+              vx: 0,
+              vy: 0,
+              phase: random(TWO_PI),
+              densityRank: random(),
+              linkRank: random(),
+              r: 230,
+              g: 232,
+              b: 238,
+              a: 0,
+              reveal: random(0, 0.72),
+              tone: random(),
+              flashUntil: 0
+            });
+          }
+        }
+      }
+      return result;
+    }
+
+    function draw() {
+      const bg = color(PALETTE.background);
+      const trail = readControl(trailInput, 80) / 100;
+      bg.setAlpha(255);
+      noStroke();
+      fill(bg);
+      rect(0, 0, width, height);
+
+      const elapsed = millis() - startedAt;
+      if (!shatterTriggered && elapsed >= SHATTER_AT_MS) {
+        triggerShatter(elapsed);
+        shatterTriggered = true;
+      }
+      const density = 0.1 + 0.9 * (readControl(densityInput, 60) / 100);
+      const speedMul = readControl(speedInput, 100) / 100;
+      const vortex = readControl(vortexInput, 100) / 100;
+      const distance = readControl(distanceInput, 100) / 100;
+      const cohesion = readControl(cohesionInput, 0) / 100;
+      // Удалённость задаёт радиус, дальше которого точки одного слова не
+      // могут разлететься друг от друга: 10% размера экрана на нуле, 80%
+      // на максимуме. Считается он от центра их же облака, в updateWordPoints.
+      const screenSize = Math.hypot(width, height);
+      const maxSpread = lerp(screenSize * DIST_MIN_SHARE, screenSize * DIST_MAX_SHARE, distance);
+      const linkShare = (readControl(linksInput, 0) / 100) * LINK_MAX_SHARE;
+      const glow = readControl(glowInput, 45) / 100;
+
+      updatePresence(readControl(presenceInput, 0) / 100);
+      updateField(elapsed);
+      activePoints.length = 0;
+
+      for (const piece of pieces) {
+        const progress = constrain(
+          (elapsed - HOLD_MS - piece.delay) / CRUMBLE_MS,
+          0,
+          1
+        );
+        const eased = progress * progress * (3 - 2 * progress);
+
+        drawSolidWord(piece, 1 - eased);
+        updateWordPoints(piece, progress, elapsed, density, speedMul, vortex, maxSpread, cohesion);
+      }
+
+      resolveCollisions();
+      if (linkShare > 0) drawLinks(linkShare);
+      drawDots(glow, trail);
+      drawPresenceBadge(readControl(presenceInput, 0) / 100);
+      updateControlValueDisplays();
+    }
+
+    function readControl(input, fallback) {
+      const value = input ? Number(input.value) : fallback;
+      return Number.isFinite(value) ? value : fallback;
+    }
+
+    // Рядом с каждым ползунком — его текущее значение в цифрах, живьём.
+    function updateControlValueDisplays() {
+      const ranges = document.querySelectorAll('#controls input[type="range"]');
+      ranges.forEach(input => {
+        const span = input.nextElementSibling;
+        if (!span || !span.classList.contains('control-value')) return;
+        const suffix = span.dataset.suffix || '';
+        span.textContent = Math.round(Number(input.value)) + suffix;
+      });
+    }
+    // Движение в кадре считается по разнице двух соседних кадров маленького
+    // видео 48×27: дёшево и без библиотек распознавания. Порог зависит от
+    // чувствительности: на малой собрать слова может только сильное движение,
+    // на полной хватает касания кадра. Ниже порога система идёт к хаосу,
+    // выше — к словам. Это направление, не скорость.
+    function updatePresence(sensitivity) {
+      const now = millis();
+      const dt = presenceAt ? Math.min(0.1, (now - presenceAt) / 1000) : 1 / 30;
+      presenceAt = now;
+      if (sensitivity <= 0) {
+        if (cam) {
+          cam.remove();
+          cam = null;
+          camReady = false;
+          camPrev = null;
+        }
+        motion = 0;
+        for (const z in zones) zones[z] = 0;
+        assembly = Math.max(0, assembly - dt * 0.6);
+        return;
+      }
+      if (!cam) {
+        cam = createCapture(VIDEO, () => { camReady = true; });
+        cam.size(CAM_W, CAM_H);
+        cam.hide();
+      }
+      let energy = 0;
+      if (camReady) {
+        cam.loadPixels();
+        const px = cam.pixels;
+        if (px && px.length >= CAM_W * CAM_H * 4) {
+          const gray = new Uint8Array(CAM_W * CAM_H);
+          let sum = 0;
+          const zoneSum = { head: 0, torso: 0, left: 0, right: 0 };
+          const zoneN = { head: 0, torso: 0, left: 0, right: 0 };
+          for (let i = 0; i < gray.length; i++) {
+            const j = i * 4;
+            gray[i] = (px[j] * 77 + px[j + 1] * 150 + px[j + 2] * 29) >> 8;
+            if (camPrev) {
+              const d = Math.abs(gray[i] - camPrev[i]);
+              sum += d;
+              const u = 1 - ((i % CAM_W) + 0.5) / CAM_W;   // зеркально
+              const v = (Math.floor(i / CAM_W) + 0.5) / CAM_H;
+              let z = null;
+              if (u > 0.36 && u < 0.64) z = v < 0.38 ? 'head' : 'torso';
+              else if (v > 0.12) z = u <= 0.36 ? 'left' : 'right';
+              if (z) { zoneSum[z] += d; zoneN[z]++; }
+            }
+          }
+          if (camPrev) {
+            energy = constrain((sum / gray.length) / 26, 0, 1);
+            for (const z in zones) {
+              const raw = zoneN[z] ? constrain((zoneSum[z] / zoneN[z]) / 30, 0, 1) : 0;
+              zones[z] = lerp(zones[z], raw, 0.3);
+            }
+          }
+          camPrev = gray;
+        }
+      }
+      motion = lerp(motion, energy, 0.25);
+      const threshold = 0.55 * (1 - sensitivity) + 0.02;
+      const drive = motion >= threshold
+        ? (motion - threshold) / Math.max(0.05, 1 - threshold)
+        : -(threshold - motion) / Math.max(0.05, threshold);
+      const rate = drive > 0 ? 1.4 * (0.35 + 0.65 * sensitivity) : 0.45;
+      assembly = constrain(assembly + drive * rate * dt, 0, 1);
+    }
+
+    // Поле скорости: вихревое (curl) поле от шума. Оно не сжимает и не
+    // разрежает точки, поэтому масса остается ровной и не сбивается в струи.
+    function buildField() {
+      const cols = Math.ceil(width / FIELD_CELL) + 1;
+      const rows = Math.ceil(height / FIELD_CELL) + 1;
+      field = {
+        cols,
+        rows,
+        phi: new Float32Array(cols * rows),
+        vx: new Float32Array(cols * rows),
+        vy: new Float32Array(cols * rows),
+        region: new Float32Array(cols * rows)
+      };
+    }
+
+    function updateField(elapsed) {
+      const t = elapsed * 0.00005;
+      const { cols, rows, phi, vx, vy, region } = field;
+
+      for (let j = 0; j < rows; j++) {
+        for (let i = 0; i < cols; i++) {
+          phi[i + j * cols] = noise(i * FIELD_WAVE, j * FIELD_WAVE, t);
+          region[i + j * cols] = noise(i * FIELD_WAVE * 0.6 + 300, j * FIELD_WAVE * 0.6 + 300, t * 0.6);
+        }
+      }
+
+      let regionMin = 1;
+      let regionMax = 0;
+      for (let k = 0; k < cols * rows; k++) {
+        if (region[k] < regionMin) regionMin = region[k];
+        if (region[k] > regionMax) regionMax = region[k];
+      }
+      const regionSpan = Math.max(regionMax - regionMin, 0.0001);
+      for (let k = 0; k < cols * rows; k++) {
+        region[k] = (region[k] - regionMin) / regionSpan;
+      }
+
+      let maxMag = 0.0001;
+      for (let j = 0; j < rows; j++) {
+        const jm = Math.max(j - 1, 0);
+        const jp = Math.min(j + 1, rows - 1);
+        for (let i = 0; i < cols; i++) {
+          const im = Math.max(i - 1, 0);
+          const ip = Math.min(i + 1, cols - 1);
+          const dx = phi[ip + j * cols] - phi[im + j * cols];
+          const dy = phi[i + jp * cols] - phi[i + jm * cols];
+          const k = i + j * cols;
+          vx[k] = dy;
+          vy[k] = -dx;
+          const mag = Math.hypot(dy, dx);
+          if (mag > maxMag) maxMag = mag;
+        }
+      }
+
+      const targetGain = MAX_SPEED / maxMag;
+      fieldGain = fieldGain === 0 ? targetGain : lerp(fieldGain, targetGain, 0.03);
+    }
+
+    function sampleField(x, y, out) {
+      const { cols, rows, vx, vy, region } = field;
+      const fx = constrain(x / FIELD_CELL, 0, cols - 1.001);
+      const fy = constrain(y / FIELD_CELL, 0, rows - 1.001);
+      const i = Math.floor(fx);
+      const j = Math.floor(fy);
+      const u = fx - i;
+      const v = fy - j;
+      const k00 = i + j * cols;
+      const k10 = k00 + 1;
+      const k01 = k00 + cols;
+      const k11 = k01 + 1;
+      const w00 = (1 - u) * (1 - v);
+      const w10 = u * (1 - v);
+      const w01 = (1 - u) * v;
+      const w11 = u * v;
+      out.vx = (vx[k00] * w00 + vx[k10] * w10 + vx[k01] * w01 + vx[k11] * w11) * fieldGain;
+      out.vy = (vy[k00] * w00 + vy[k10] * w10 + vy[k01] * w01 + vy[k11] * w11) * fieldGain;
+      out.region = region[k00] * w00 + region[k10] * w10 + region[k01] * w01 + region[k11] * w11;
+    }
+
+    function drawSolidWord(piece, visibility) {
+      if (visibility <= 0) return;
+      push();
+      textSize(piece.fontSize);
+      textStyle(NORMAL);
+      textAlign(CENTER, CENTER);
+      const c = color(PALETTE[piece.colorName]);
+      c.setAlpha(235 * visibility);
+      fill(c);
+      text(piece.label, piece.cx, piece.cy - 1);
+      pop();
+    }
+
+    const fieldSample = { vx: 0, vy: 0, region: 0 };
+    const blue2 = c => blue(c);
+
+    // Через SHATTER_AT_MS после загрузки все слова разом «раскалываются»:
+    // расписание крошения каждого слова переигрывается так, будто оно
+    // стартует прямо сейчас (вместо своей обычной, гораздо более поздней
+    // и растянутой очереди), а каждая точка получает собственную, сеяную
+    // случайную цель на экране и короткий резкий рывок к ней — россыпь
+    // осколков, а не плавный дрейф.
+    function triggerShatter(elapsed) {
+      for (const piece of pieces) {
+        piece.delay = elapsed - HOLD_MS;
+        for (const point of piece.points) {
+          const homeX = piece.cx + point.x;
+          const homeY = piece.cy + point.y;
+          point.px = homeX;
+          point.py = homeY;
+          point.shatterFromX = homeX;
+          point.shatterFromY = homeY;
+          const angle = random(TWO_PI);
+          const dist = random(SHATTER_MIN_DIST, SHATTER_MAX_DIST);
+          point.shatterToX = constrain(homeX + Math.cos(angle) * dist, 12, width - 12);
+          point.shatterToY = constrain(homeY + Math.sin(angle) * dist, 12, height - 12);
+          point.shatterStart = elapsed + point.reveal * 0.42 * CRUMBLE_MS;
+          point.shattering = true;
+        }
+      }
+    }
+
+    // Считает новое положение и цвет каждой точки слова. Рисование - отдельно,
+    // чтобы линии легли под точками, а не поверх них.
+    function updateWordPoints(piece, progress, elapsed, density, speedMul, vortex, maxSpread, cohesion) {
+      if (progress <= 0) return;
+      const breathTime = elapsed * 0.00115;
+      const flowIn = constrain(
+        (elapsed - HOLD_MS - piece.delay - CRUMBLE_MS) / FLOW_IN_MS,
+        0,
+        1
+      );
+      const flow = flowIn * flowIn * (3 - 2 * flowIn);
+
+      // Проход 1: двигаем точки слова и собираем тех, что сейчас видны —
+      // по ним построим центр их собственного, а не изначального, облака.
+      liveScratch.length = 0;
+      for (const point of piece.points) {
+        if (point.densityRank > density) continue;
+
+        const local = constrain((progress - point.reveal * 0.42) / 0.58, 0, 1);
+        if (local <= 0) continue;
+
+        if (flow > 0) {
+          sampleField(point.px, point.py, fieldSample);
+          let targetVx = fieldSample.vx;
+          let targetVy = fieldSample.vy;
+          if (vortex > 0) {
+            // Широкая горизонтальная восьмёрка с мягким переходом из облака.
+            if (point.orbitPhase === undefined) point.orbitPhase = point.phase;
+            const radiusX = 440 + (point.tone - 0.5) * 90;
+            const radiusY = 220 + (point.densityRank - 0.5) * 60;
+            const theta = point.orbitPhase;
+            const tangentX = radiusX * Math.cos(theta);
+            const tangentY = 2 * radiusY * Math.cos(2 * theta);
+            const angularSpeed = 0.9 / Math.max(1, Math.hypot(tangentX, tangentY));
+            const targetX = width / 2 + radiusX * Math.sin(theta);
+            const targetY = height / 2 + radiusY * Math.sin(2 * theta);
+            const orbitVx = tangentX * angularSpeed + (targetX - point.px) * 0.018;
+            const orbitVy = tangentY * angularSpeed + (targetY - point.py) * 0.018;
+            targetVx = lerp(targetVx, orbitVx, vortex);
+            targetVy = lerp(targetVy, orbitVy, vortex);
+            point.orbitPhase += angularSpeed * flow * speedMul * vortex;
+          }
+          if (cohesion > 0) {
+            // Связность стягивает точки слова к месту, где оно стояло на
+            // экране: тяга растёт с расстоянием, но не сильнее потолка, а
+            // сила прямо пропорциональна ползунку — 0% это отсутствие тяги,
+            // 100% — её полная, ничем не срезанная величина.
+            const dxHome = piece.cx - point.px;
+            const dyHome = piece.cy - point.py;
+            const distHome = Math.hypot(dxHome, dyHome);
+            if (distHome > 1) {
+              const pullMag = Math.min(distHome * COHESION_RATE, COHESION_MAX_PULL) * cohesion;
+              targetVx += (dxHome / distHome) * pullMag;
+              targetVy += (dyHome / distHome) * pullMag;
+            }
+          }
+          point.vx = lerp(point.vx, targetVx * flow * speedMul, 0.08);
+          point.vy = lerp(point.vy, targetVy * flow * speedMul, 0.08);
+          if (vortex > 0) {
+            const limit = Math.min(1, 2.7 / Math.max(0.001, Math.hypot(point.vx, point.vy)));
+            point.vx *= limit;
+            point.vy *= limit;
+          }
+          point.px += point.vx;
+          point.py += point.vy;
+          if (assembly > 0) {
+            // Тяга к своей букве. Шаг за кадр ограничен размером точки,
+            // поэтому слова собираются медленно и читаемо в Zoom.
+            const homeX = piece.cx + point.x;
+            const homeY = piece.cy + point.y;
+            const pull = assembly * assembly * 0.22;
+            let dx = (homeX - point.px) * pull;
+            let dy = (homeY - point.py) * pull;
+            const step = Math.hypot(dx, dy);
+            const maxStep = DOT_SIZE * 1.5;
+            if (step > maxStep) {
+              dx *= maxStep / step;
+              dy *= maxStep / step;
+            }
+            point.px += dx;
+            point.py += dy;
+            point.vx *= 1 - assembly * 0.9;
+            point.vy *= 1 - assembly * 0.9;
+          }
+          if (point.px < -4) point.px += width + 8;
+          if (point.px > width + 4) point.px -= width + 8;
+          if (point.py < -4) point.py += height + 8;
+          if (point.py > height + 4) point.py -= height + 8;
+
+          point._region = fieldSample.region;
+        } else {
+          point._region = 0.5;
+        }
+
+        // Осколок летит к своей случайной цели резким рывком, а не полем —
+        // потом, когда рывок закончен, точка спокойно передаётся обычному
+        // течению (полю, вихрю, связности) со скоростью, взятой из направления рывка.
+        if (point.shattering) {
+          const t = constrain((elapsed - point.shatterStart) / SHATTER_DURATION_MS, 0, 1);
+          if (t <= 0) {
+            point.px = point.shatterFromX;
+            point.py = point.shatterFromY;
+          } else {
+            const eased = 1 - Math.pow(1 - t, 3);
+            point.px = lerp(point.shatterFromX, point.shatterToX, eased);
+            point.py = lerp(point.shatterFromY, point.shatterToY, eased);
+            if (t >= 1) {
+              point.shattering = false;
+              point.vx = (point.shatterToX - point.shatterFromX) * 0.002;
+              point.vy = (point.shatterToY - point.shatterFromY) * 0.002;
+            }
+          }
+        }
+
+        liveScratch.push(point);
+      }
+
+      // Удалённость: точки одного слова не могут разлететься дальше
+      // maxSpread друг от друга. Меряем не от места, где слово стояло на
+      // экране, а от центра их же текущего облака — оно само может уплыть
+      // по полю и вихрю, а вот друг от друга точки дальше отведённого не
+      // разойдутся. Граница гасит скорость наружу, и точка скользит вдоль
+      // неё, а не бьётся о неё.
+      if (flow > 0 && liveScratch.length > 1) {
+        let centerX = 0;
+        let centerY = 0;
+        for (const point of liveScratch) {
+          centerX += point.px;
+          centerY += point.py;
+        }
+        centerX /= liveScratch.length;
+        centerY /= liveScratch.length;
+
+        for (const point of liveScratch) {
+          const fromCenterX = point.px - centerX;
+          const fromCenterY = point.py - centerY;
+          const distFromCenter = Math.hypot(fromCenterX, fromCenterY);
+          if (distFromCenter > maxSpread) {
+            const scale = maxSpread / distFromCenter;
+            point.px = centerX + fromCenterX * scale;
+            point.py = centerY + fromCenterY * scale;
+            const nx = fromCenterX / distFromCenter;
+            const ny = fromCenterY / distFromCenter;
+            const outward = point.vx * nx + point.vy * ny;
+            if (outward > 0) {
+              point.vx -= outward * nx;
+              point.vy -= outward * ny;
+            }
+          }
+        }
+      }
+
+      // Проход 2: цвет и попадание в общий список отрисовки.
+      for (const point of liveScratch) {
+        const local = constrain((progress - point.reveal * 0.42) / 0.58, 0, 1);
+        const reveal = local * local * (3 - 2 * local);
+        const speed = flow > 0 ? Math.hypot(point.vx, point.vy) / MAX_SPEED : 0;
+        const region = point._region;
+
+        // Цвет облака задает круг HSB: направление от центра — оттенок,
+        // расстояние — насыщенность. Скорость сохраняет в массе светлый воздух.
+        const st = constrain((speed - 0.10) / 0.42, 0, 1);
+        const mix = st * st * (3 - 2 * st);
+        const hueShift = (region - 0.5) * 18;
+        colorMode(HSB, 360, 100, 100, 255);
+        let dotColor = color(
+          (cloudHue + hueShift + 360) % 360,
+          cloudSaturation * (0.26 + mix * 0.74),
+          92 + (1 - mix) * 8
+        );
+        colorMode(RGB, 255, 255, 255, 255);
+
+        if (flow <= 0 && piece.colorName !== 'light') {
+          dotColor = color(PALETTE[piece.colorName]);
+        }
+
+        point.r = red(dotColor);
+        point.g = green(dotColor);
+        point.b = blue2(dotColor);
+        point.a = (185 + 30 * sin(breathTime * 0.7 + point.phase)) * reveal;
+        point.breathe = 0.96 + sin(breathTime + point.phase) * 0.08;
+        activePoints.push(point);
+      }
+    }
+
+    // Настоящие столкновения: соседей ищем через сетку (иначе на тысячах
+    // точек это слишком медленно), пару разбираем один раз — по возрастанию
+    // id, чтобы не отталкивать друг от друга дважды за кадр. Отталкивание —
+    // упругий удар равных масс: вдоль линии центров скорости обмениваются,
+    // поэтому сила и направление толчка равны скорости сближения точек.
+    // При каждом ударе обе точки вспыхивают белым на FLASH_MS.
+    function resolveCollisions() {
+      collideGrid.clear();
+      for (const point of activePoints) {
+        const gx = Math.floor(point.px / COLLIDE_CELL);
+        const gy = Math.floor(point.py / COLLIDE_CELL);
+        const key = gx * 4096 + gy;
+        const bucket = collideGrid.get(key);
+        if (bucket) bucket.push(point);
+        else collideGrid.set(key, [point]);
+      }
+
+      const now = millis();
+
+      for (const point of activePoints) {
+        const gx = Math.floor(point.px / COLLIDE_CELL);
+        const gy = Math.floor(point.py / COLLIDE_CELL);
+
+        for (let ox = -1; ox <= 1; ox++) {
+          for (let oy = -1; oy <= 1; oy++) {
+            const bucket = collideGrid.get((gx + ox) * 4096 + gy + oy);
+            if (!bucket) continue;
+
+            for (const other of bucket) {
+              if (other.id <= point.id) continue;
+
+              let dx = other.px - point.px;
+              let dy = other.py - point.py;
+              let dist = Math.hypot(dx, dy);
+              if (dist >= COLLIDE_DIST) continue;
+
+              if (dist < 0.0001) {
+                // Центры совпали — берём угол из сеяного random(), а не делим на ноль.
+                const angle = random(TWO_PI);
+                dx = cos(angle);
+                dy = sin(angle);
+                dist = 1;
+              }
+              const nx = dx / dist;
+              const ny = dy / dist;
+
+              // Расходятся сами — трогать нечего, но контакт уже случился.
+              const rvx = other.vx - point.vx;
+              const rvy = other.vy - point.vy;
+              const closingSpeed = -(rvx * nx + rvy * ny);
+              if (closingSpeed <= 0) continue;
+
+              // Упругий удар равных масс: обмен нормальной составляющей
+              // скорости. Сила толчка равна скорости сближения точек.
+              point.vx -= closingSpeed * nx;
+              point.vy -= closingSpeed * ny;
+              other.vx += closingSpeed * nx;
+              other.vy += closingSpeed * ny;
+
+              // Раздвигаем точки, чтобы они не залипали друг в друге.
+              const overlap = (COLLIDE_DIST - dist) / 2;
+              point.px -= nx * overlap;
+              point.py -= ny * overlap;
+              other.px += nx * overlap;
+              other.py += ny * overlap;
+
+              point.flashUntil = now + FLASH_MS;
+              other.flashUntil = now + FLASH_MS;
+
+              // Стеклянный звон — только когда сталкиваются точки одного
+              // слова (у каждой точки её слово записано на рождении и не
+              // меняется, так что сравнение надёжно). И даже тогда не на
+              // каждое столкновение подряд: общий предохранитель между
+              // звонами не даёт им слиться в шум, даже если точек одного
+              // слова сталкивается очень много за один кадр.
+              if (point.wordIndex === other.wordIndex && now - lastChimeAt >= CHIME_MIN_GAP_MS) {
+                triggerGlassChime(closingSpeed);
+                lastChimeAt = now;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Контурная фигура в правом нижнем углу: голова, позвоночник, две руки.
+    // Часть, в зоне которой есть движение, светлеет и уходит в оранжевый.
+    // Под фигурой одна тонкая линия — общая интенсивность. Текста нет.
+    function drawPresenceBadge(sensitivity) {
+      if (sensitivity <= 0 || !cam) return;
+      const x0 = width - 64;
+      const y0 = height - 92;
+      const base = color(PALETTE.muted);
+      const hot = color(PALETTE.orange);
+      const partColor = level => {
+        const c = lerpColor(base, hot, constrain(level, 0, 1));
+        c.setAlpha(110 + 145 * constrain(level, 0, 1));
+        return c;
+      };
+      push();
+      noFill();
+      strokeCap(ROUND);
+      strokeWeight(2);
+      stroke(partColor(zones.head));
+      circle(x0, y0, 12 + zones.head * 3);
+      stroke(partColor(zones.torso));
+      line(x0, y0 + 8, x0, y0 + 40);
+      stroke(partColor(zones.left));
+      line(x0 - 1, y0 + 14, x0 - 18 - zones.left * 4, y0 + 34 - zones.left * 10);
+      stroke(partColor(zones.right));
+      line(x0 + 1, y0 + 14, x0 + 18 + zones.right * 4, y0 + 34 - zones.right * 10);
+      strokeWeight(2);
+      stroke(base.levels[0], base.levels[1], base.levels[2], 90);
+      line(x0 - 22, y0 + 54, x0 + 22, y0 + 54);
+      stroke(partColor(motion));
+      line(x0 - 22, y0 + 54, x0 - 22 + 44 * constrain(motion, 0, 1), y0 + 54);
+      pop();
+    }
+
+    function drawDots(glow, trail) {
+      noStroke();
+      const context = drawingContext;
+      const now = millis();
+      for (const point of activePoints) {
+        // Вспышка от столкновения перекрывает обычный цвет точки на 0,1с.
+        const flashing = point.flashUntil > now;
+        const r = flashing ? 255 : point.r;
+        const g = flashing ? 255 : point.g;
+        const b = flashing ? 255 : point.b;
+        const a = flashing ? 255 : point.a;
+
+        if (trail > 0) {
+          const length = 72 * trail;
+          stroke(r, g, b, a * trail * 0.42);
+          strokeWeight(DOT_SIZE * point.breathe * (0.55 + trail * 0.25));
+          line(
+            point.px, point.py,
+            point.px - point.vx * length,
+            point.py - point.vy * length
+          );
+          noStroke();
+        }
+        // На нуле остаётся только чёткое ядро точки. В остальных положениях
+        // ореол — один непрерывный радиальный градиент, без видимых колец.
+        if (glow > 0) {
+          const radius = lerp(DOT_SIZE * 0.9, 10, glow) * point.breathe * (flashing ? 1.6 : 1);
+          const alpha = Math.round(a * glow * (flashing ? 0.32 : 0.18));
+          const halo = context.createRadialGradient(
+            point.px, point.py, 0,
+            point.px, point.py, radius
+          );
+          halo.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${alpha / 255})`);
+          halo.addColorStop(0.32, `rgba(${r}, ${g}, ${b}, ${(alpha * 0.48) / 255})`);
+          halo.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+          context.fillStyle = halo;
+          context.beginPath();
+          context.arc(point.px, point.py, radius, 0, TWO_PI);
+          context.fill();
+        }
+        fill(r, g, b, a);
+        circle(point.px, point.py, DOT_SIZE * point.breathe * (flashing ? 1.3 : 1));
+      }
+    }
+
+    function setupHsbWheel() {
+      const wheel = document.getElementById('hsbWheel');
+      const dot = document.getElementById('hsbDot');
+      if (!wheel || !dot) return;
+
+      const placeDot = () => {
+        const angle = radians(cloudHue - 90);
+        const radius = (cloudSaturation / 100) * 18;
+        dot.style.left = `${22 + cos(angle) * radius}px`;
+        dot.style.top = `${22 + sin(angle) * radius}px`;
+        wheel.setAttribute('aria-valuetext', `оттенок ${Math.round(cloudHue)}, насыщенность ${Math.round(cloudSaturation)}`);
+      };
+      placeHsbDot = placeDot;
+
+      const chooseColor = event => {
+        const rect = wheel.getBoundingClientRect();
+        const dx = event.clientX - rect.left - rect.width / 2;
+        const dy = event.clientY - rect.top - rect.height / 2;
+        const radius = Math.min(Math.hypot(dx, dy), rect.width / 2);
+        cloudSaturation = (radius / (rect.width / 2)) * 100;
+        cloudHue = (degrees(atan2(dy, dx)) + 90 + 360) % 360;
+        placeDot();
+      };
+
+      wheel.addEventListener('pointerdown', event => {
+        wheel.setPointerCapture(event.pointerId);
+        chooseColor(event);
+      });
+      wheel.addEventListener('pointermove', event => {
+        if (event.buttons) chooseColor(event);
+      });
+      placeDot();
+    }
+
+    // Кнопка «Хаос»: каждому контролу блока «визуализация» — своё случайное
+    // значение в его собственных границах (min/max берутся прямо с ползунка,
+    // а не задаются повторно здесь), плюс случайные оттенок и насыщенность
+    // HSB-круга. Кнопка ищется один раз и, если её нет на странице, ничего
+    // не делает — не ломает остальную настройку.
+    function randomizeVisualization() {
+      const rangeInputs = document.querySelectorAll('#vizGroup input[type="range"]:not(#presence)');
+      rangeInputs.forEach(input => {
+        const lo = Number(input.min);
+        const hi = Number(input.max);
+        input.value = String(random(lo, hi));
+      });
+      cloudHue = random(0, 360);
+      cloudSaturation = random(0, 100);
+      if (placeHsbDot) placeHsbDot();
+    }
+
+    function setupChaosButton() {
+      const btn = document.getElementById('chaosBtn');
+      if (btn) btn.addEventListener('click', randomizeVisualization);
+    }
+
+    // Линии между соседними точками: короткие связи внутри массы, они тянутся
+    // за потоком и гаснут с расстоянием, поэтому не читаются как царапины.
+    function drawLinks(linkShare) {
+      linkGrid.clear();
+      for (const point of activePoints) {
+        const key = (Math.floor(point.px / LINK_RADIUS)) * 4096 +
+          Math.floor(point.py / LINK_RADIUS);
+        const bucket = linkGrid.get(key);
+        if (bucket) bucket.push(point);
+        else linkGrid.set(key, [point]);
+      }
+
+      strokeWeight(1);
+      noFill();
+
+      for (const point of activePoints) {
+        if (point.linkRank > linkShare) continue;
+
+        const gx = Math.floor(point.px / LINK_RADIUS);
+        const gy = Math.floor(point.py / LINK_RADIUS);
+        let best = null;
+        let bestDist = 0;
+        let bestScore = Infinity;
+
+        // Ищем соседа не ближайшего, а на заметном расстоянии: короткие связи
+        // между соседними точками одного штриха на экране не видны.
+        for (let ox = -1; ox <= 1; ox++) {
+          for (let oy = -1; oy <= 1; oy++) {
+            const bucket = linkGrid.get((gx + ox) * 4096 + gy + oy);
+            if (!bucket) continue;
+            for (const other of bucket) {
+              if (other === point) continue;
+              const dx = other.px - point.px;
+              const dy = other.py - point.py;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              if (dist < LINK_MIN || dist > LINK_RADIUS) continue;
+              const score = Math.abs(dist - LINK_WANTED);
+              if (score < bestScore) {
+                bestScore = score;
+                bestDist = dist;
+                best = other;
+              }
+            }
+          }
+        }
+
+        if (!best) continue;
+        const fade = 1 - 0.55 * ((bestDist - LINK_MIN) / (LINK_RADIUS - LINK_MIN));
+        stroke(
+          (point.r + best.r) / 2,
+          (point.g + best.g) / 2,
+          (point.b + best.b) / 2,
+          Math.min(point.a, best.a) * 0.5 * fade
+        );
+        line(point.px, point.py, best.px, best.py);
+      }
+      noStroke();
+    }
+  </script>
+</body>
+</html>
