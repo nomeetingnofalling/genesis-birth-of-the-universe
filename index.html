@@ -25,10 +25,18 @@
       font: 13px/1.2 'PT Mono', monospace;
     }
     #stage {
+      position: relative;
       flex: 1 1 0;
       min-height: 0;
       max-width: 100%;
       aspect-ratio: 16 / 9;
+    }
+    /* WebGL-слой с точками лежит точно поверх p5-канвы и не ловит мышь. */
+    #pointsLayer {
+      position: absolute;
+      left: 0;
+      top: 0;
+      pointer-events: none;
     }
     #controlsToggle {
       position: fixed;
@@ -541,6 +549,7 @@
     // на каждую точку каждый кадр.
     const GLOW_BUCKETS = 32;
     let glowSprites = [];
+    const glowBucketRGB = new Float32Array(GLOW_BUCKETS * 3);
     let hsbGlowSprite = null;
     let hsbGlowSpriteHue = -1;
     let hsbGlowSpriteSat = -1;
@@ -555,8 +564,6 @@
     let fieldFrame = 0;
     let activePoints = [];
     let liveScratch = [];
-    let linkGrid = new Map();
-    let collideGrid = new Map();
     let nextPointId = 0;
     let audioCtx = null;
     let chimeVoices = [];
@@ -893,49 +900,54 @@
     }
 
 // ===================== Производительность: под конкретную машину =====================
-    // Браузер не даёт напрямую раскидать отрисовку канвы по ядрам процессора -
-    // это ограничение самого Canvas 2D, а не этого файла. Что реально работает:
-    // подстраивать чёткость картинки под то, что машина держит без просадок.
+    // Канву 2D браузер не раскладывает по ядрам процессора, поэтому главное
+    // ускорение сделано иначе: все точки (шлейф, свечение, ядро) рисует
+    // видеокарта через WebGL-слой поверх p5-канвы (см. «Точки на видеокарте»).
+    // Сама p5-канва (звёзды, планеты, линии) всегда в x1: её разгон до x2
+    // вчетверо утяжелял кадр и раскачивал fps между 30 и 20.
+    // Автомасштаб ниже меняет только чёткость слоя точек — это дёшево.
     const PERF_SAMPLE_MS = 1000;
-    const PERF_LOW_FPS = 24;
-    const PERF_HIGH_FPS = 28;
+    const PERF_LOW_FPS = 26;
+    const PERF_HIGH_FPS = 29;
+    let perfWindowFrames = 0;
 
-    // Прикидывает, насколько можно поднять плотность пикселей канвы на этой
-    // машине - по числу логических ядер и памяти, которые видит браузер.
-    // Это только потолок; реальный разгон делает updatePerfScaling ниже,
-    // глядя на живой FPS.
+    // Потолок чёткости слоя точек: не выше плотности пикселей экрана и не
+    // выше того, что прикидываем по ядрам и памяти машины.
     function detectPerfCeiling() {
       const cores = navigator.hardwareConcurrency || 4;
       const mem = navigator.deviceMemory || 4; // ГБ; есть только в Chrome/Edge
-      if (cores >= 8 && mem >= 8) return 2;
-      if (cores >= 4) return 1.5;
-      return 1;
+      const screenDensity = window.devicePixelRatio || 1;
+      let ceiling = 1;
+      if (cores >= 8 && mem >= 8) ceiling = 2;
+      else if (cores >= 4) ceiling = 1.5;
+      return Math.max(1, Math.min(ceiling, screenDensity));
     }
 
-    // Раз в секунду смотрит на реальный FPS: держится ниже 24 - плотность
-    // пикселей канвы плавно снижается, пока не станет снова плавно; держится
-    // выше 28 и есть запас по мощности машины - плавно поднимается обратно,
-    // вплоть до потолка этой машины. Работает тихо, без участия пользователя.
+    // Раз в секунду считает средний FPS за эту секунду (а не по одному
+    // кадру, как frameRate()). Держится ниже 26 - чёткость слоя точек
+    // снижается на шаг; держится 29+ - возвращается к потолку.
     function updatePerfScaling() {
+      perfWindowFrames++;
       const now = millis();
-      if (now - perfWindowStart < PERF_SAMPLE_MS) return;
+      const elapsed = now - perfWindowStart;
+      if (elapsed < PERF_SAMPLE_MS) return;
+      perfCurrentFps = (perfWindowFrames * 1000) / elapsed;
       perfWindowStart = now;
-      perfCurrentFps = frameRate();
+      perfWindowFrames = 0;
+      if (!pointsLayer) return; // без WebGL p5-канва остаётся в x1
 
       if (perfCurrentFps < PERF_LOW_FPS) {
         perfHighStreak = 0;
         perfLowStreak++;
         if (perfLowStreak >= 2 && perfPixelDensity > 1) {
           perfPixelDensity = Math.max(1, perfPixelDensity - 0.25);
-          pixelDensity(perfPixelDensity);
           perfLowStreak = 0;
         }
-      } else if (perfCurrentFps > PERF_HIGH_FPS) {
+      } else if (perfCurrentFps >= PERF_HIGH_FPS) {
         perfLowStreak = 0;
         perfHighStreak++;
         if (perfHighStreak >= 3 && perfPixelDensity < perfPixelDensityCeiling) {
           perfPixelDensity = Math.min(perfPixelDensityCeiling, perfPixelDensity + 0.25);
-          pixelDensity(perfPixelDensity);
           perfHighStreak = 0;
         }
       } else {
@@ -944,23 +956,23 @@
       }
     }
 
-    // Текущий FPS и множитель чёткости в правом верхнем углу - видно, что
-    // картинка не тормозит, без открытия консоли разработчика.
+    // Средний FPS, чёткость слоя точек и способ отрисовки (GL - видеокарта,
+    // 2D - запасной путь без WebGL) в правом верхнем углу.
     function drawPerfHud() {
       push();
       noStroke();
       fill(138, 143, 153, 210);
       textAlign(RIGHT, TOP);
       textSize(12);
-      text('FPS ' + Math.round(frameRate()) + ' \u00b7 x' + perfPixelDensity.toFixed(2), width - 14, 14);
+      text('FPS ' + Math.round(perfCurrentFps) + ' \u00b7 x' + perfPixelDensity.toFixed(2) +
+        (pointsLayer ? ' \u00b7 GL' : ' \u00b7 2D'), width - 14, 14);
       pop();
     }
 
     function setup() {
       const canvas = createCanvas(1280, 720);
       canvas.parent('stage');
-      perfPixelDensityCeiling = detectPerfCeiling();
-      pixelDensity(perfPixelDensity);
+      pixelDensity(1);
       frameRate(30);
       randomSeed(7);
       noiseSeed(7);
@@ -1014,7 +1026,9 @@
       setupChimeVoices();
       window.addEventListener('pointerdown', unlockAudioOnce);
       window.addEventListener('keydown', unlockAudioOnce);
+      initPointsLayer();
       startedAt = millis();
+      perfWindowStart = startedAt;
     }
 
     // 32 маленьких спрайта свечения — цвета берутся из той же радуги
@@ -1028,6 +1042,10 @@
         const t = i / (GLOW_BUCKETS - 1);
         const c = sampleGlowColor(t);
         const r = red(c), g = green(c), b = blue2(c);
+        // Те же цвета корзин нужны WebGL-слою, который рисует свечение без спрайтов.
+        glowBucketRGB[i * 3] = r / 255;
+        glowBucketRGB[i * 3 + 1] = g / 255;
+        glowBucketRGB[i * 3 + 2] = b / 255;
         const gfx = createGraphics(size, size);
         gfx.pixelDensity(1);
         gfx.clear();
@@ -1652,56 +1670,77 @@
     const STAR_THIN_ABOVE = 0.7;
     const STAR_CULL_MARGIN = 50;
     
+    // Цвета звёзд считаются обычной арифметикой (раньше на каждую звезду
+    // создавалось ~8 объектов p5.Color). Тени и блики вдоль хвоста рисуются
+    // только у звёзд толще пикселя - у тонких они всё равно не видны.
+    // Звёзды целиком за краем холста пропускаются.
+    const STAR_DETAIL_MIN_WIDTH = 1;
+
     function drawStars() {
       if (starEnabledInput && !starEnabledInput.checked) return;
       const context = drawingContext;
       const base = color(PALETTE.muted);
       const bright = color(PALETTE.light);
+      const bg = color(PALETTE.background);
+      const baseR = red(base), baseG = green(base), baseB = blue2(base);
+      const brightR = red(bright), brightG = green(bright), brightB = blue2(bright);
+      const bgR = red(bg), bgG = green(bg), bgB = blue2(bg);
       const contrastMul = lerp(1, 2, readControl(starContrastInput, 0) / 100);
       const dimAlpha = lerp(36, 255, readControl(starBrightnessInput, 0) / 100);
       const cosA = Math.cos(starSpinAngle);
       const sinA = Math.sin(starSpinAngle);
       const tailShare = readControl(starSpeedInput, 0) / 100;
+      const cx = width / 2;
+      const cy = height / 2;
+      const minX = -STAR_CULL_MARGIN;
+      const maxX = width + STAR_CULL_MARGIN;
+      const minY = -STAR_CULL_MARGIN;
+      const maxY = height + STAR_CULL_MARGIN;
       for (const star of stars) {
         const scale = DEPTH_FOCAL / (DEPTH_FOCAL + star.z);
         const rx = star.x * cosA - star.y * sinA;
         const ry = star.x * sinA + star.y * cosA;
-        const sx = width / 2 + rx * scale;
-        const sy = height / 2 + ry * scale;
+        const sx = cx + rx * scale;
+        const sy = cy + ry * scale;
         const stretchedTailX = sx + (star.prevSx - sx) * STAR_TAIL_STRETCH;
         const stretchedTailY = sy + (star.prevSy - sy) * STAR_TAIL_STRETCH;
-        const tailX = lerp(stretchedTailX, width / 2, tailShare);
-        const tailY = lerp(stretchedTailY, height / 2, tailShare);
+        const tailX = stretchedTailX + (cx - stretchedTailX) * tailShare;
+        const tailY = stretchedTailY + (cy - stretchedTailY) * tailShare;
+        if ((sx < minX && tailX < minX) || (sx > maxX && tailX > maxX) ||
+            (sy < minY && tailY < minY) || (sy > maxY && tailY > maxY)) {
+          continue;
+        }
         const depthT = constrain(1 - star.z / STAR_FAR_Z, 0, 1);
-        const c = lerpColor(base, bright, depthT);
+        const r = baseR + (brightR - baseR) * depthT;
+        const g = baseG + (brightG - baseG) * depthT;
+        const b = baseB + (brightB - baseB) * depthT;
         const alpha = Math.min(255, dimAlpha + depthT * 190 * contrastMul);
-        const r = red(c);
-        const g = green(c);
-        const b = blue2(c);
         const lineWidth = (0.6 + depthT * 1.4 * contrastMul) * scale * 1.5;
-        const dx = sx - tailX;
-        const dy = sy - tailY;
-        const segLen = Math.sqrt(dx * dx + dy * dy) || 1;
-        const nx = -dy / segLen;
-        const ny = dx / segLen;
-        const shadeOffset = lineWidth * 0.55;
-        const shadowColor = lerpColor(c, color(PALETTE.background), 0.6);
-        const highlightColor = lerpColor(c, color(PALETTE.light), 0.65);
-        drawStarSegment(
-          context,
-          tailX - nx * shadeOffset, tailY - ny * shadeOffset,
-          sx - nx * shadeOffset, sy - ny * shadeOffset,
-          red(shadowColor), green(shadowColor), blue2(shadowColor),
-          (alpha / 255) * 0.7, lineWidth * 0.75
-        );
-        drawStarSegment(context, tailX, tailY, sx, sy, r, g, b, alpha / 255, lineWidth);
-        drawStarSegment(
-          context,
-          tailX + nx * shadeOffset, tailY + ny * shadeOffset,
-          sx + nx * shadeOffset, sy + ny * shadeOffset,
-          red(highlightColor), green(highlightColor), blue2(highlightColor),
-          (alpha / 255) * 0.6, lineWidth * 0.5
-        );
+        if (lineWidth >= STAR_DETAIL_MIN_WIDTH) {
+          const dx = sx - tailX;
+          const dy = sy - tailY;
+          const segLen = Math.sqrt(dx * dx + dy * dy) || 1;
+          const nx = -dy / segLen;
+          const ny = dx / segLen;
+          const shadeOffset = lineWidth * 0.55;
+          drawStarSegment(
+            context,
+            tailX - nx * shadeOffset, tailY - ny * shadeOffset,
+            sx - nx * shadeOffset, sy - ny * shadeOffset,
+            r + (bgR - r) * 0.6, g + (bgG - g) * 0.6, b + (bgB - b) * 0.6,
+            (alpha / 255) * 0.7, lineWidth * 0.75
+          );
+          drawStarSegment(context, tailX, tailY, sx, sy, r, g, b, alpha / 255, lineWidth);
+          drawStarSegment(
+            context,
+            tailX + nx * shadeOffset, tailY + ny * shadeOffset,
+            sx + nx * shadeOffset, sy + ny * shadeOffset,
+            r + (brightR - r) * 0.65, g + (brightG - g) * 0.65, b + (brightB - b) * 0.65,
+            (alpha / 255) * 0.6, lineWidth * 0.5
+          );
+        } else {
+          drawStarSegment(context, tailX, tailY, sx, sy, r, g, b, alpha / 255, lineWidth);
+        }
       }
       noStroke();
     }
@@ -1960,29 +1999,73 @@
       }
     }
 
+    // Сетка столкновений на типизированных массивах: точки раскладываются по
+    // клеткам сортировкой подсчётом. Никаких Map и новых массивов на каждом
+    // кадре - нет и пауз на сборку мусора. Порядок обхода тот же, что был.
+    let collideCellStart = null;
+    let collideCellFill = null;
+    let collideOrder = null;
+    let collidePointCell = null;
+    let collideCols = 0;
+    let collideRows = 0;
+
+    function collideCellCoord(value, cells) {
+      const c = Math.floor(value / COLLIDE_CELL) + 1;
+      return c < 0 ? 0 : (c >= cells ? cells - 1 : c);
+    }
+
     function resolveCollisions() {
-      collideGrid.clear();
-      for (const point of activePoints) {
-        const gx = Math.floor(point.px / COLLIDE_CELL);
-        const gy = Math.floor(point.py / COLLIDE_CELL);
-        const key = gx * 4096 + gy;
-        const bucket = collideGrid.get(key);
-        if (bucket) bucket.push(point);
-        else collideGrid.set(key, [point]);
+      const points = activePoints;
+      const count = points.length;
+      collideCols = Math.ceil(width / COLLIDE_CELL) + 3;
+      collideRows = Math.ceil(height / COLLIDE_CELL) + 3;
+      const cells = collideCols * collideRows;
+      if (!collideCellStart || collideCellStart.length !== cells + 1) {
+        collideCellStart = new Int32Array(cells + 1);
+        collideCellFill = new Int32Array(cells);
+      }
+      if (!collideOrder || collideOrder.length < count) {
+        collideOrder = new Int32Array(Math.max(count, CLOUD_POINT_COUNT));
+        collidePointCell = new Int32Array(Math.max(count, CLOUD_POINT_COUNT));
+      }
+      const cellStart = collideCellStart;
+      const cellFill = collideCellFill;
+      const order = collideOrder;
+      const pointCell = collidePointCell;
+
+      cellStart.fill(0);
+      for (let i = 0; i < count; i++) {
+        const point = points[i];
+        const c = collideCellCoord(point.py, collideRows) * collideCols + collideCellCoord(point.px, collideCols);
+        pointCell[i] = c;
+        cellStart[c + 1]++;
+      }
+      for (let c = 0; c < cells; c++) {
+        cellStart[c + 1] += cellStart[c];
+        cellFill[c] = cellStart[c];
+      }
+      for (let i = 0; i < count; i++) {
+        order[cellFill[pointCell[i]]++] = i;
       }
 
       const now = millis();
 
-      for (const point of activePoints) {
-        const gx = Math.floor(point.px / COLLIDE_CELL);
-        const gy = Math.floor(point.py / COLLIDE_CELL);
+      for (let i = 0; i < count; i++) {
+        const point = points[i];
+        const gx = collideCellCoord(point.px, collideCols);
+        const gy = collideCellCoord(point.py, collideRows);
 
         for (let ox = -1; ox <= 1; ox++) {
+          const cellX = gx + ox;
+          if (cellX < 0 || cellX >= collideCols) continue;
           for (let oy = -1; oy <= 1; oy++) {
-            const bucket = collideGrid.get((gx + ox) * 4096 + gy + oy);
-            if (!bucket) continue;
+            const cellY = gy + oy;
+            if (cellY < 0 || cellY >= collideRows) continue;
+            const c = cellY * collideCols + cellX;
+            const bucketEnd = cellStart[c + 1];
 
-            for (const other of bucket) {
+            for (let k = cellStart[c]; k < bucketEnd; k++) {
+              const other = points[order[k]];
               if (other.id <= point.id) continue;
 
               let dx = other.px - point.px;
@@ -2059,7 +2142,281 @@
       pop();
     }
 
+    // ===================== Точки на видеокарте (WebGL-слой) =====================
+    // Раньше каждая из 5200 точек рисовалась тремя отдельными вызовами p5
+    // (шлейф, свечение, ядро) - ~15 600 вызовов канвы за кадр, это и съедало
+    // почти весь кадр. Теперь CPU только заполняет один массив чисел, а
+    // видеокарта рисует всё одним вызовом, в том же порядке, что и раньше:
+    // для каждой точки шлейф, потом свечение, потом ядро. Профиль свечения
+    // в шейдере тот же, что у спрайтов (1 -> 0.48 -> 0), у шлейфа круглые
+    // концы, как у line() в p5. Если WebGL недоступен, работает прежний
+    // путь drawDots2D.
+    const GL_FLOATS_PER_SHAPE = 10; // x0, y0, x1, y1, размер, вид, r, g, b, a
+    const GL_SHAPES_PER_POINT = 4;  // линия связи, шлейф, свечение, ядро
+    const GL_KIND_TRAIL = 0;
+    const GL_KIND_GLOW = 1;
+    const GL_KIND_DOT = 2;
+
+    const POINTS_VS = `
+      attribute vec2 a_corner;
+      attribute vec4 a_ends;
+      attribute vec2 a_shape;
+      attribute vec4 a_col;
+      uniform vec2 u_res;
+      uniform float u_density;
+      varying vec4 v_col;
+      varying vec4 v_q;
+      varying float v_kind;
+      void main() {
+        vec2 pos;
+        if (a_shape.y < 0.5) {
+          // шлейф: отрезок a_ends.xy -> a_ends.zw, a_shape.x - половина толщины
+          vec2 d = a_ends.zw - a_ends.xy;
+          float len = length(d);
+          vec2 dir = len > 0.0001 ? d / len : vec2(1.0, 0.0);
+          vec2 nrm = vec2(-dir.y, dir.x);
+          float ext = a_shape.x + 1.0;
+          float along = mix(-ext, len + ext, a_corner.x * 0.5 + 0.5);
+          float across = a_corner.y * ext;
+          pos = a_ends.xy + dir * along + nrm * across;
+          v_q = vec4(along, across, len, a_shape.x) * u_density;
+        } else {
+          // свечение и ядро: центр a_ends.xy, a_shape.x - диаметр
+          float r = a_shape.x * 0.5;
+          vec2 local = a_corner * (r + 1.0);
+          pos = a_ends.xy + local;
+          v_q = vec4(local, 0.0, r) * u_density;
+        }
+        v_kind = a_shape.y;
+        v_col = a_col;
+        vec2 c = pos / u_res * 2.0 - 1.0;
+        gl_Position = vec4(c.x, -c.y, 0.0, 1.0);
+      }`;
+
+    const POINTS_FS = `
+      precision mediump float;
+      varying vec4 v_col;
+      varying vec4 v_q;
+      varying float v_kind;
+      void main() {
+        // расстояние (в пикселях экрана) до отрезка; у круга длина отрезка 0
+        float ax = v_q.x - clamp(v_q.x, 0.0, v_q.z);
+        float d = length(vec2(ax, v_q.y));
+        float r = max(v_q.w, 0.001);
+        float a = v_col.a;
+        if (v_kind > 0.5 && v_kind < 1.5) {
+          float t = d / r;
+          a *= t < 0.32 ? mix(1.0, 0.48, t / 0.32) : mix(0.48, 0.0, clamp((t - 0.32) / 0.68, 0.0, 1.0));
+        } else {
+          a *= clamp(r - d + 0.5, 0.0, 1.0);
+        }
+        if (a <= 0.002) discard;
+        gl_FragColor = vec4(v_col.rgb * a, a);
+      }`;
+
+    let pointsLayer = null;
+
+    function initPointsLayer() {
+      try {
+        const cv = document.createElement('canvas');
+        cv.id = 'pointsLayer';
+        const gl = cv.getContext('webgl', {
+          alpha: true,
+          premultipliedAlpha: true,
+          antialias: false,
+          depth: false,
+          stencil: false,
+          preserveDrawingBuffer: false
+        });
+        if (!gl) throw new Error('WebGL недоступен');
+        const instancing = gl.getExtension('ANGLE_instanced_arrays');
+        if (!instancing) throw new Error('нет ANGLE_instanced_arrays');
+
+        const compile = (type, src) => {
+          const sh = gl.createShader(type);
+          gl.shaderSource(sh, src);
+          gl.compileShader(sh);
+          if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+          return sh;
+        };
+        const prog = gl.createProgram();
+        gl.attachShader(prog, compile(gl.VERTEX_SHADER, POINTS_VS));
+        gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, POINTS_FS));
+        gl.linkProgram(prog);
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+        gl.useProgram(prog);
+
+        const layer = {
+          canvas: cv,
+          gl,
+          instancing,
+          res: gl.getUniformLocation(prog, 'u_res'),
+          density: gl.getUniformLocation(prog, 'u_density'),
+          buffer: gl.createBuffer(),
+          capacity: 0,
+          data: null
+        };
+
+        // Четыре угла квадрата - общие для всех фигур.
+        const cornerLoc = gl.getAttribLocation(prog, 'a_corner');
+        gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(cornerLoc);
+        gl.vertexAttribPointer(cornerLoc, 2, gl.FLOAT, false, 0, 0);
+
+        // Данные фигур: по одной записи на шлейф, свечение и ядро каждой точки.
+        gl.bindBuffer(gl.ARRAY_BUFFER, layer.buffer);
+        const stride = GL_FLOATS_PER_SHAPE * 4;
+        const perShape = [['a_ends', 4, 0], ['a_shape', 2, 16], ['a_col', 4, 24]];
+        for (const [name, size, offset] of perShape) {
+          const loc = gl.getAttribLocation(prog, name);
+          gl.enableVertexAttribArray(loc);
+          gl.vertexAttribPointer(loc, size, gl.FLOAT, false, stride, offset);
+          instancing.vertexAttribDivisorANGLE(loc, 1);
+        }
+        gl.disable(gl.DEPTH_TEST);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+        gl.clearColor(0, 0, 0, 0);
+
+        // Если видеокарта «потеряет» контекст (сон ноутбука, сбой драйвера),
+        // тихо возвращаемся к прежней отрисовке на p5-канве.
+        cv.addEventListener('webglcontextlost', event => {
+          event.preventDefault();
+          if (cv.parentNode) cv.parentNode.removeChild(cv);
+          pointsLayer = null;
+          perfPixelDensity = 1;
+        });
+
+        ensurePointsCapacity(layer, CLOUD_POINT_COUNT);
+        document.getElementById('stage').appendChild(cv);
+        pointsLayer = layer;
+        perfPixelDensityCeiling = detectPerfCeiling();
+        perfPixelDensity = perfPixelDensityCeiling;
+      } catch (err) {
+        console.warn('WebGL-слой точек не запустился, рисую по-старому:', err);
+        pointsLayer = null;
+      }
+    }
+
+    // Буфер растёт сам, если точек станет больше.
+    function ensurePointsCapacity(layer, pointCount) {
+      if (pointCount <= layer.capacity) return;
+      const capacity = Math.max(pointCount, Math.ceil(layer.capacity * 1.5));
+      layer.capacity = capacity;
+      layer.data = new Float32Array(capacity * GL_SHAPES_PER_POINT * GL_FLOATS_PER_SHAPE);
+      const gl = layer.gl;
+      gl.bindBuffer(gl.ARRAY_BUFFER, layer.buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, layer.data.byteLength, gl.DYNAMIC_DRAW);
+    }
+
     function drawDots(glow, trail) {
+      if (pointsLayer) drawDotsGL(glow, trail);
+      else drawDots2D(glow, trail);
+    }
+
+    function putShape(data, off, x0, y0, x1, y1, size, kind, r, g, b, a) {
+      data[off] = x0;
+      data[off + 1] = y0;
+      data[off + 2] = x1;
+      data[off + 3] = y1;
+      data[off + 4] = size;
+      data[off + 5] = kind;
+      data[off + 6] = r;
+      data[off + 7] = g;
+      data[off + 8] = b;
+      data[off + 9] = a;
+      return off + GL_FLOATS_PER_SHAPE;
+    }
+
+    function drawDotsGL(glow, trail) {
+      const layer = pointsLayer;
+      const gl = layer.gl;
+      const cv = layer.canvas;
+      const density = perfPixelDensity;
+      const bw = Math.round(width * density);
+      const bh = Math.round(height * density);
+      if (cv.width !== bw || cv.height !== bh) {
+        cv.width = bw;
+        cv.height = bh;
+      }
+      gl.viewport(0, 0, bw, bh);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+
+      const count = activePoints.length;
+      if (count === 0) {
+        glLinkCount = 0;
+        return;
+      }
+      ensurePointsCapacity(layer, count);
+      const data = layer.data;
+      let off = 0;
+      // линии связи (если включены) идут первыми - под точками
+      if (glLinkCount > 0) {
+        off = glLinkCount * GL_FLOATS_PER_SHAPE;
+        data.set(glLinkData.subarray(0, off), 0);
+        glLinkCount = 0;
+      }
+
+      const now = millis();
+      const cx = width / 2;
+      const cy = height / 2;
+      const useHsbGlow = cloudMixAmount > 0.3;
+      const hsbR = cloudMixR / 255;
+      const hsbG = cloudMixG / 255;
+      const hsbB = cloudMixB / 255;
+      const trailLength = 72 * trail;
+      const trailAlphaMul = trail * 0.42;
+      const trailHalfWidthMul = DOT_SIZE * (0.55 + trail * 0.25) * 0.5;
+      const glowRadiusBase = lerp(DOT_SIZE * 0.9, 10, glow);
+
+      for (let i = 0; i < count; i++) {
+        const point = activePoints[i];
+        const flashing = point.flashUntil > now;
+        const r = flashing ? 1 : point.r / 255;
+        const g = flashing ? 1 : point.g / 255;
+        const b = flashing ? 1 : point.b / 255;
+        const a = flashing ? 1 : point.a / 255;
+        const scale = point.scale;
+        const sx = cx + (point.px - cx) * scale;
+        const sy = cy + (point.py - cy) * scale;
+
+        if (trail > 0) {
+          const tx = cx + (point.px - point.vx * trailLength - cx) * scale;
+          const ty = cy + (point.py - point.vy * trailLength - cy) * scale;
+          const half = trailHalfWidthMul * point.breathe * scale;
+          off = putShape(data, off, sx, sy, tx, ty, half, GL_KIND_TRAIL, r, g, b, a * trailAlphaMul);
+        }
+
+        if (glow > 0) {
+          const radius = glowRadiusBase * point.breathe * scale * (flashing ? 1.6 : 1);
+          const bucket = point.glowBucket * 3;
+          off = putShape(
+            data, off, sx, sy, sx, sy, radius * 2, GL_KIND_GLOW,
+            useHsbGlow ? hsbR : glowBucketRGB[bucket],
+            useHsbGlow ? hsbG : glowBucketRGB[bucket + 1],
+            useHsbGlow ? hsbB : glowBucketRGB[bucket + 2],
+            a * glow * (flashing ? 0.32 : 0.18)
+          );
+        }
+
+        off = putShape(
+          data, off, sx, sy, sx, sy,
+          DOT_SIZE * point.breathe * scale * (flashing ? 1.3 : 1), GL_KIND_DOT,
+          r, g, b, a
+        );
+      }
+
+      const shapes = off / GL_FLOATS_PER_SHAPE;
+      gl.bindBuffer(gl.ARRAY_BUFFER, layer.buffer);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, data.subarray(0, off));
+      gl.uniform2f(layer.res, width, height);
+      gl.uniform1f(layer.density, density);
+      layer.instancing.drawArraysInstancedANGLE(gl.TRIANGLE_STRIP, 0, 4, shapes);
+    }
+
+    // Прежняя отрисовка на p5-канве - запасной путь, если WebGL недоступен.
+    function drawDots2D(glow, trail) {
       noStroke();
       const context = drawingContext;
       const now = millis();
@@ -2198,38 +2555,101 @@
       }
     }
 
+    // Линии связи: та же сетка на типизированных массивах, что у столкновений,
+    // и сравнение квадратов расстояний до извлечения корня. Выбор соседа тот
+    // же, что был. С WebGL-слоем линии не рисуются через p5, а уходят в тот же
+    // буфер, что и точки, - первыми, то есть под точками, как и раньше.
+    let linkCellStart = null;
+    let linkCellFill = null;
+    let linkOrder = null;
+    let linkPointCell = null;
+    let glLinkData = null;
+    let glLinkCount = 0;
+
+    function linkCellCoord(value, cells) {
+      const c = Math.floor(value / LINK_RADIUS) + 1;
+      return c < 0 ? 0 : (c >= cells ? cells - 1 : c);
+    }
+
     function drawLinks(linkShare) {
-      linkGrid.clear();
-      for (const point of activePoints) {
-        const key = (Math.floor(point.px / LINK_RADIUS)) * 4096 +
-          Math.floor(point.py / LINK_RADIUS);
-        const bucket = linkGrid.get(key);
-        if (bucket) bucket.push(point);
-        else linkGrid.set(key, [point]);
+      const points = activePoints;
+      const count = points.length;
+      const cols = Math.ceil(width / LINK_RADIUS) + 3;
+      const rows = Math.ceil(height / LINK_RADIUS) + 3;
+      const cells = cols * rows;
+      if (!linkCellStart || linkCellStart.length !== cells + 1) {
+        linkCellStart = new Int32Array(cells + 1);
+        linkCellFill = new Int32Array(cells);
+      }
+      if (!linkOrder || linkOrder.length < count) {
+        linkOrder = new Int32Array(Math.max(count, CLOUD_POINT_COUNT));
+        linkPointCell = new Int32Array(Math.max(count, CLOUD_POINT_COUNT));
+      }
+      const cellStart = linkCellStart;
+      const cellFill = linkCellFill;
+      const order = linkOrder;
+      const pointCell = linkPointCell;
+
+      cellStart.fill(0);
+      for (let i = 0; i < count; i++) {
+        const point = points[i];
+        const c = linkCellCoord(point.py, rows) * cols + linkCellCoord(point.px, cols);
+        pointCell[i] = c;
+        cellStart[c + 1]++;
+      }
+      for (let c = 0; c < cells; c++) {
+        cellStart[c + 1] += cellStart[c];
+        cellFill[c] = cellStart[c];
+      }
+      for (let i = 0; i < count; i++) {
+        order[cellFill[pointCell[i]]++] = i;
       }
 
-      strokeWeight(1);
-      noFill();
+      const toGL = !!pointsLayer;
+      if (toGL) {
+        if (!glLinkData || glLinkData.length < count * GL_FLOATS_PER_SHAPE) {
+          glLinkData = new Float32Array(Math.max(count, CLOUD_POINT_COUNT) * GL_FLOATS_PER_SHAPE);
+        }
+        glLinkCount = 0;
+      } else {
+        strokeWeight(1);
+        noFill();
+      }
 
-      for (const point of activePoints) {
+      const minSq = LINK_MIN * LINK_MIN;
+      const maxSq = LINK_RADIUS * LINK_RADIUS;
+      const cx = width / 2;
+      const cy = height / 2;
+
+      for (let i = 0; i < count; i++) {
+        const point = points[i];
         if (point.linkRank > linkShare) continue;
 
-        const gx = Math.floor(point.px / LINK_RADIUS);
-        const gy = Math.floor(point.py / LINK_RADIUS);
+        const gx = linkCellCoord(point.px, cols);
+        const gy = linkCellCoord(point.py, rows);
+        const px = point.px;
+        const py = point.py;
         let best = null;
         let bestDist = 0;
         let bestScore = Infinity;
 
         for (let ox = -1; ox <= 1; ox++) {
+          const cellX = gx + ox;
+          if (cellX < 0 || cellX >= cols) continue;
           for (let oy = -1; oy <= 1; oy++) {
-            const bucket = linkGrid.get((gx + ox) * 4096 + gy + oy);
-            if (!bucket) continue;
-            for (const other of bucket) {
-              if (other === point) continue;
-              const dx = other.px - point.px;
-              const dy = other.py - point.py;
-              const dist = Math.sqrt(dx * dx + dy * dy);
-              if (dist < LINK_MIN || dist > LINK_RADIUS) continue;
+            const cellY = gy + oy;
+            if (cellY < 0 || cellY >= rows) continue;
+            const c = cellY * cols + cellX;
+            const bucketEnd = cellStart[c + 1];
+            for (let k = cellStart[c]; k < bucketEnd; k++) {
+              const j = order[k];
+              if (j === i) continue;
+              const other = points[j];
+              const dx = other.px - px;
+              const dy = other.py - py;
+              const distSq = dx * dx + dy * dy;
+              if (distSq < minSq || distSq > maxSq) continue;
+              const dist = Math.sqrt(distSq);
               const score = Math.abs(dist - LINK_WANTED);
               if (score < bestScore) {
                 bestScore = score;
@@ -2242,19 +2662,24 @@
 
         if (!best) continue;
         const fade = 1 - 0.55 * ((bestDist - LINK_MIN) / (LINK_RADIUS - LINK_MIN));
-        stroke(
-          (point.r + best.r) / 2,
-          (point.g + best.g) / 2,
-          (point.b + best.b) / 2,
-          Math.min(point.a, best.a) * 0.5 * fade
-        );
-        const psx = width / 2 + (point.px - width / 2) * point.scale;
-        const psy = height / 2 + (point.py - height / 2) * point.scale;
-        const bsx = width / 2 + (best.px - width / 2) * best.scale;
-        const bsy = height / 2 + (best.py - height / 2) * best.scale;
-        line(psx, psy, bsx, bsy);
+        const lr = (point.r + best.r) / 2;
+        const lg = (point.g + best.g) / 2;
+        const lb = (point.b + best.b) / 2;
+        const la = Math.min(point.a, best.a) * 0.5 * fade;
+        const psx = cx + (point.px - cx) * point.scale;
+        const psy = cy + (point.py - cy) * point.scale;
+        const bsx = cx + (best.px - cx) * best.scale;
+        const bsy = cy + (best.py - cy) * best.scale;
+        if (toGL) {
+          putShape(glLinkData, glLinkCount * GL_FLOATS_PER_SHAPE, psx, psy, bsx, bsy, 0.5,
+            GL_KIND_TRAIL, lr / 255, lg / 255, lb / 255, la / 255);
+          glLinkCount++;
+        } else {
+          stroke(lr, lg, lb, la);
+          line(psx, psy, bsx, bsy);
+        }
       }
-      noStroke();
+      if (!toGL) noStroke();
     }
   </script>
 </body>
