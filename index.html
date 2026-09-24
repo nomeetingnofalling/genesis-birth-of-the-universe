@@ -38,6 +38,22 @@
       top: 0;
       pointer-events: none;
     }
+    /* Отладочная панель справа под FPS; клавиша D прячет и показывает. */
+    #debugPanel {
+      position: absolute;
+      top: 5.5%;
+      right: 1.1%;
+      z-index: 5;
+      margin: 0;
+      padding: 8px 10px;
+      background: rgba(14, 15, 18, 0.78);
+      border: 1px solid #22242b;
+      border-radius: 6px;
+      color: #8a8f99;
+      font: 11px/1.45 'PT Mono', monospace;
+      white-space: pre;
+      pointer-events: none;
+    }
     #controlsToggle {
       position: fixed;
       top: 14px;
@@ -899,6 +915,161 @@
       }, true);
     }
 
+    // ===================== Отладочная панель (клавиша D) =====================
+    // Справа под FPS: сколько ядер у машины и какие из них заняты этой
+    // страницей, сколько миллисекунд кадра и какую долю бюджета 30 fps
+    // (33,3 мс) съедает каждый процесс и какие ползунки на него влияют.
+    // Обновляется раз в секунду. Загрузку отдельных ядер браузер не
+    // сообщает - поэтому показано то, что можно измерить честно: время
+    // главного потока (в нём идёт весь расчёт) и, если браузер позволяет,
+    // время видеокарты на слой точек.
+    const DEBUG_FRAME_BUDGET_MS = 1000 / 30;
+    const DEBUG_STAGES = [
+      { key: 'physics', label: 'движение точек', controls: 'плотность, скорость, вихрь, сфера, связность, планеты' },
+      { key: 'collide', label: 'столкновения', controls: 'плотность' },
+      { key: 'links', label: 'линии связи', controls: 'количество линий, плотность' },
+      { key: 'dots', label: 'точки: подготовка', controls: 'свечение, шлейф, HSB, плотность' },
+      { key: 'stars', label: 'звёзды', controls: 'блок «звёзды»' },
+      { key: 'planets', label: 'планеты и солнце', controls: 'масса, скорость, орбита, притяжение' },
+      { key: 'field', label: 'поле течения', controls: '-' },
+      { key: 'intro', label: 'вступление', controls: 'первые 60 с' },
+      { key: 'mic', label: 'микрофон', controls: 'чувствительность' },
+      { key: 'other', label: 'фон, HSB, панель', controls: '-' }
+    ];
+
+    let debugVisible = true;
+    let debugPanelEl = null;
+    const debugAcc = {};
+    let debugFrames = 0;
+    let debugJsMs = 0;
+    let debugWindowStart = 0;
+    let debugFrameStart = 0;
+    let debugMarkAt = 0;
+    const debugGpu = { gl: null, ext: null, query: null, sumMs: 0, samples: 0 };
+
+    function setupDebugPanel() {
+      debugPanelEl = document.createElement('pre');
+      debugPanelEl.id = 'debugPanel';
+      debugPanelEl.textContent = 'отладка: собираю данные...';
+      document.getElementById('stage').appendChild(debugPanelEl);
+      for (const stage of DEBUG_STAGES) debugAcc[stage.key] = 0;
+      window.addEventListener('keydown', event => {
+        if (event.code !== 'KeyD' || event.metaKey || event.ctrlKey || event.altKey) return;
+        debugVisible = !debugVisible;
+        debugPanelEl.style.display = debugVisible ? '' : 'none';
+      });
+      debugWindowStart = performance.now();
+    }
+
+    function debugBeginFrame() {
+      debugFrameStart = performance.now();
+      debugMarkAt = debugFrameStart;
+    }
+
+    // Всё время с прошлой отметки записывается на счёт процесса key.
+    function debugMark(key) {
+      const now = performance.now();
+      debugAcc[key] += now - debugMarkAt;
+      debugMarkAt = now;
+    }
+
+    function debugEndFrame() {
+      if (!debugPanelEl) return;
+      const now = performance.now();
+      debugJsMs += now - debugFrameStart;
+      debugFrames++;
+      const elapsed = now - debugWindowStart;
+      if (elapsed < 1000) return;
+      if (debugVisible) renderDebugPanel(elapsed);
+      for (const stage of DEBUG_STAGES) debugAcc[stage.key] = 0;
+      debugFrames = 0;
+      debugJsMs = 0;
+      debugGpu.sumMs = 0;
+      debugGpu.samples = 0;
+      debugWindowStart = now;
+    }
+
+    // Время видеокарты на слой точек (расширение EXT_disjoint_timer_query).
+    // Одновременно в работе один замер - результат забираем, когда готов.
+    function debugGpuBegin(gl) {
+      if (!debugVisible) return false;
+      const g = debugGpu;
+      if (g.gl !== gl) {
+        g.gl = gl;
+        g.ext = gl.getExtension('EXT_disjoint_timer_query');
+        g.query = null;
+      }
+      const ext = g.ext;
+      if (!ext) return false;
+      if (g.query) {
+        const available = ext.getQueryObjectEXT(g.query, ext.QUERY_RESULT_AVAILABLE_EXT);
+        const disjoint = gl.getParameter(ext.GPU_DISJOINT_EXT);
+        if (!available && !disjoint) return false;
+        if (available && !disjoint) {
+          g.sumMs += ext.getQueryObjectEXT(g.query, ext.QUERY_RESULT_EXT) / 1e6;
+          g.samples++;
+        }
+        ext.deleteQueryEXT(g.query);
+        g.query = null;
+      }
+      g.query = ext.createQueryEXT();
+      ext.beginQueryEXT(ext.TIME_ELAPSED_EXT, g.query);
+      return true;
+    }
+
+    function debugGpuEnd(started) {
+      if (started) debugGpu.ext.endQueryEXT(debugGpu.ext.TIME_ELAPSED_EXT);
+    }
+
+    function renderDebugPanel(elapsed) {
+      const frames = Math.max(1, debugFrames);
+      const fmt = (v, digits) => v.toFixed(digits);
+      const jsPerFrame = debugJsMs / frames;
+      const coreLoad = (debugJsMs / elapsed) * 100;
+      const cores = navigator.hardwareConcurrency || '?';
+      const audioOn = soundOutputEnabled || presenceEnabled;
+      const lines = [];
+      lines.push('ОТЛАДКА                                   D - скрыть');
+      lines.push('ядра процессора: ' + cores + ' логических в системе');
+      lines.push('заняты страницей: 1 поток расчёта (главный)' +
+        (pointsLayer ? ' + видеокарта' : '') + (audioOn ? ' + аудиопоток' : ''));
+      lines.push('главный поток: ' + fmt(jsPerFrame, 1) + ' мс на кадр = ' +
+        Math.round(coreLoad) + '% одного ядра');
+      let gpuLine = 'видеокарта, слой точек: ';
+      if (!pointsLayer) gpuLine += 'выключен, точки рисуются в 2D';
+      else if (!debugGpu.ext) gpuLine += 'браузер не даёт замерить';
+      else if (debugGpu.samples === 0) gpuLine += 'замер...';
+      else gpuLine += fmt(debugGpu.sumMs / debugGpu.samples, 2) + ' мс на кадр';
+      lines.push(gpuLine);
+      const fpsNow = (debugFrames * 1000) / elapsed;
+      lines.push('кадров в секунду: ' + fmt(fpsNow, 1) + ' (цель 30, бюджет кадра 33,3 мс)');
+      if (fpsNow >= 28.5) lines.push('итог: 30 fps держатся');
+      else if (jsPerFrame > 25) lines.push('итог: не успевает расчёт в главном потоке');
+      else lines.push('итог: расчёт успевает - тормозит отрисовка (видеокарта/браузер)');
+      lines.push('');
+      lines.push('процесс'.padEnd(20) + 'мс'.padStart(6) + '% кадра'.padStart(9) + '  от чего зависит');
+      const rows = DEBUG_STAGES
+        .map(stage => ({ stage, ms: debugAcc[stage.key] / frames }))
+        .sort((a, b) => b.ms - a.ms);
+      for (const row of rows) {
+        const share = (row.ms / DEBUG_FRAME_BUDGET_MS) * 100;
+        lines.push(
+          row.stage.label.padEnd(20) +
+          fmt(row.ms, 2).padStart(6) +
+          (fmt(share, share < 10 ? 1 : 0) + '%').padStart(9) +
+          '  ' + row.stage.controls
+        );
+      }
+      const total = (jsPerFrame / DEBUG_FRAME_BUDGET_MS) * 100;
+      lines.push('всего'.padEnd(20) + fmt(jsPerFrame, 2).padStart(6) + (Math.round(total) + '%').padStart(9) +
+        '  запас ' + Math.max(0, Math.round(100 - total)) + '%');
+      lines.push('');
+      lines.push('экран x' + (window.devicePixelRatio || 1) + ' · чёткость точек x' + perfPixelDensity.toFixed(2) +
+        ' (потолок x' + perfPixelDensityCeiling.toFixed(2) + ')');
+      lines.push('точек в кадре: ' + activePoints.length + ' · плотность ' + Math.round(readControl(densityInput, 60)));
+      debugPanelEl.textContent = lines.join('\n');
+    }
+
 // ===================== Производительность: под конкретную машину =====================
     // Канву 2D браузер не раскладывает по ядрам процессора, поэтому главное
     // ускорение сделано иначе: все точки (шлейф, свечение, ядро) рисует
@@ -1027,6 +1198,7 @@
       window.addEventListener('pointerdown', unlockAudioOnce);
       window.addEventListener('keydown', unlockAudioOnce);
       initPointsLayer();
+      setupDebugPanel();
       startedAt = millis();
       perfWindowStart = startedAt;
     }
@@ -1260,6 +1432,7 @@
     }
 
     function draw() {
+      debugBeginFrame();
       updatePerfScaling();
       const bg = color(PALETTE.background);
       const trail = readControl(trailInput, 10) / 100;
@@ -1267,12 +1440,15 @@
       noStroke();
       fill(bg);
       rect(0, 0, width, height);
+      debugMark('other');
 
       updateStars();
       drawStars();
+      debugMark('stars');
 
       const elapsed = millis() - startedAt;
       const progress = drawIntro(elapsed);
+      debugMark('intro');
 
       const density = 0.1 + 0.9 * (readControl(densityInput, 60) / 100);
       const speedMul = readControl(speedInput, 100) / 100;
@@ -1304,27 +1480,38 @@
           (hsbGlowSpriteHue !== cloudHue || hsbGlowSpriteSat !== cloudSaturation)) {
         buildHsbGlowSprite();
       }
+      debugMark('other');
 
       updatePresence(readControl(presenceInput, 0) / 100);
+      debugMark('mic');
       updateSun();
       drawSun();
       updatePlanet();
       drawPlanet();
       updatePlanet2();
       drawPlanet2();
+      debugMark('planets');
       updateField(elapsed);
+      debugMark('field');
       activePoints.length = 0;
 
       for (const piece of pieces) {
         updateWordPoints(piece, progress, elapsed, density, speedMul, vortex, sphere, maxSpread, cohesion);
       }
+      debugMark('physics');
 
       resolveCollisions();
+      debugMark('collide');
       if (linkShare > 0) drawLinks(linkShare);
+      debugMark('links');
       drawDots(glow, trail);
+      debugMark('dots');
       drawPresenceBadge();
+      debugMark('mic');
       updateControlValueDisplays();
       drawPerfHud();
+      debugMark('other');
+      debugEndFrame();
     }
 
     function drawIntro(elapsed) {
@@ -2408,11 +2595,13 @@
       }
 
       const shapes = off / GL_FLOATS_PER_SHAPE;
+      const gpuTimed = debugGpuBegin(gl);
       gl.bindBuffer(gl.ARRAY_BUFFER, layer.buffer);
       gl.bufferSubData(gl.ARRAY_BUFFER, 0, data.subarray(0, off));
       gl.uniform2f(layer.res, width, height);
       gl.uniform1f(layer.density, density);
       layer.instancing.drawArraysInstancedANGLE(gl.TRIANGLE_STRIP, 0, 4, shapes);
+      debugGpuEnd(gpuTimed);
     }
 
     // Прежняя отрисовка на p5-канве - запасной путь, если WebGL недоступен.
