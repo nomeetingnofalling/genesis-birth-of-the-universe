@@ -1,0 +1,2328 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Слова — точечная сетка</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Handjet:wght@400&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.13/p5.min.js" defer></script>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #0e0f12;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      color: #8a8f99;
+      font: 13px/1.2 'PT Mono', monospace;
+    }
+    /* Панель управления теперь не в потоке (см. #controls ниже), поэтому
+       сцена одна в body и занимает весь экран, сохраняя пропорции 16:9. */
+    #stage {
+      flex: 1 1 0;
+      min-height: 0;
+      max-width: 100%;
+      aspect-ratio: 16 / 9;
+    }
+    /* Панель управления больше не стоит в потоке под сценой — она выезжает
+       слева поверх неё, чтобы во время показа сцена занимала весь экран,
+       а настройки доставались одним нажатием кнопки в углу. */
+    #controlsToggle {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      z-index: 21;
+      width: 34px;
+      height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #14161b;
+      border: 1px solid #2c2f38;
+      border-radius: 6px;
+      color: #e6e8ee;
+      font: 16px/1 'PT Mono', monospace;
+      cursor: pointer;
+    }
+    #controlsToggle:hover {
+      border-color: #ff7a50;
+      color: #ff7a50;
+    }
+    #controls {
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 20;
+      height: 100%;
+      width: min(84vw, 300px);
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 22px;
+      padding: 60px 16px 16px;
+      background: rgba(14, 15, 18, 0.2);   /* прозрачность 80% по просьбе */
+      border-right: 1px solid #22242b;
+      overflow-y: auto;
+      transform: translateX(-100%);
+      transition: transform 0.25s ease;
+    }
+    #controls.open {
+      transform: translateX(0);
+    }
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+    }
+    .group-title {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #5a5f69;
+    }
+    .group-row {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 14px;
+    }
+    .group-body {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 18px;
+    }
+    .chaos-frame {
+      margin-top: auto;
+      padding: 16px 0 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .chaos-btn {
+      background: linear-gradient(180deg, #ff9a3d, #ff7a10);
+      border: 1px solid #a8480a;
+      border-radius: 6px;
+      color: #2a1400;
+      font: 700 13px/1.2 'PT Mono', monospace;
+      padding: 8px 20px;
+      cursor: pointer;
+      letter-spacing: 0.04em;
+      box-shadow: 0 3px 0 #9a3f08, 0 5px 8px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+      transform: translateY(0);
+      transition: transform 0.06s ease, box-shadow 0.06s ease, background 0.15s ease, color 0.15s ease;
+    }
+    .chaos-btn:hover {
+      background: linear-gradient(180deg, #ffe066, #ffcc00);
+      border-color: #cc9900;
+      color: #2a2000;
+    }
+    .chaos-btn:active {
+      transform: translateY(3px);
+      box-shadow: 0 0 0 #9a3f08, inset 0 2px 5px rgba(0, 0, 0, 0.4);
+    }
+    .mic-toggle {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      background: #14161b;
+      border: 1px solid #2c2f38;
+      border-radius: 6px;
+      color: #8a8f99;
+      font: 13px/1.2 'PT Mono', monospace;
+      padding: 9px 14px;
+      cursor: pointer;
+      transition: border-color 0.15s ease, color 0.15s ease;
+    }
+    .mic-toggle:hover {
+      border-color: #ff7a50;
+      color: #e6e8ee;
+    }
+    .mic-toggle-dot {
+      width: 8px;
+      height: 8px;
+      flex: 0 0 8px;
+      border-radius: 50%;
+      background: #3a3d45;
+      transition: background 0.15s ease, box-shadow 0.15s ease;
+    }
+    /* .live отражает не нажатие кнопки, а то, что микрофон и правда сейчас
+       слушает (поток получен браузером) — по этой точке видно фактическое
+       использование, а не только желание пользователя его включить. */
+    .mic-toggle.live .mic-toggle-dot {
+      background: #ff7a50;
+      box-shadow: 0 0 8px 2px rgba(255, 122, 80, 0.65);
+    }
+    #controls label {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px 10px;
+    }
+    #controls input[type="range"] {
+      flex: 1 1 120px;
+      min-width: 90px;
+      width: auto;
+      accent-color: #ff7a50;
+    }
+    #controls input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: #ff7a50;
+      cursor: pointer;
+    }
+    .control-value {
+      display: inline-block;
+      min-width: 2.6em;
+      color: #ff7a50;
+      font-variant-numeric: tabular-nums;
+    }
+    #controls .hsb-control {
+      gap: 9px;
+    }
+    .hsb-wheel {
+      position: relative;
+      width: 44px;
+      height: 44px;
+      flex: 0 0 44px;
+      border-radius: 50%;
+      cursor: crosshair;
+      touch-action: none;
+      background:
+        radial-gradient(circle, #e6e8ee 0 0, transparent 70%),
+        conic-gradient(#ff5050, #ff7a50, #ffe650, #58e878, #55dfff, #5aa9ff, #bd72ff, #ff5aa8, #ff5050);
+    }
+    .hsb-wheel::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: radial-gradient(circle, #e6e8ee 0, transparent 10%, transparent 100%);
+      pointer-events: none;
+    }
+    .hsb-dot {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      border: 2px solid #e6e8ee;
+      border-radius: 50%;
+      box-shadow: 0 0 0 1px #0e0f12;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+    canvas {
+      display: block;
+      width: 100% !important;
+      height: 100% !important;
+    }
+  </style>
+</head>
+<body>
+  <main id="stage" aria-label="Слова, собранные в строгую сетку и превращающиеся в точки"></main>
+  <button id="controlsToggle" type="button" aria-label="Показать или скрыть панель управления">☰</button>
+
+  <div id="controls">
+    <div class="control-group">
+      <div class="group-title">жизнь</div>
+      <div class="group-body">
+        <div class="group-row" id="vizGroup">
+          <label>плотность точек
+            <input id="density" type="range" min="0" max="100" value="60" />
+            <span class="control-value" id="densityValue">60</span>
+          </label>
+          <label>скорость движения
+            <input id="speed" type="range" min="0" max="200" value="100" />
+            <span class="control-value" id="speedValue">100</span>
+          </label>
+          <label>вихрь
+            <input id="vortex" type="range" min="0" max="100" value="100" />
+            <span class="control-value" id="vortexValue">100</span>
+          </label>
+          <label>сфера
+            <input id="sphere" type="range" min="0" max="100" value="0" />
+            <span class="control-value" id="sphereValue">0</span>
+          </label>
+          <label>удаленность
+            <input id="distance" type="range" min="0" max="100" value="100" />
+            <span class="control-value" id="distanceValue">100</span>
+          </label>
+          <label>связность
+            <input id="cohesion" type="range" min="0" max="100" value="0" />
+            <span class="control-value" id="cohesionValue">0</span>
+          </label>
+          <label>количество линий
+            <input id="links" type="range" min="0" max="100" value="0" />
+            <span class="control-value" id="linksValue">0</span>
+          </label>
+          <label>свечение
+            <input id="glow" type="range" min="0" max="100" value="45" />
+            <span class="control-value" id="glowValue">45</span>
+          </label>
+          <label>шлейф
+            <input id="trail" type="range" min="0" max="100" value="80" />
+            <span class="control-value" id="trailValue">80</span>
+          </label>
+          <label class="hsb-control">HSB облака
+            <span id="hsbWheel" class="hsb-wheel" role="slider" aria-label="Оттенок и насыщенность облака точек">
+              <span id="hsbDot" class="hsb-dot"></span>
+            </span>
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="control-group">
+      <div class="group-title">звёзды</div>
+      <div class="group-row">
+        <label>скорость звёзд
+          <input id="starSpeed" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="starSpeedValue">0</span>
+        </label>
+        <label>контраст звёзд
+          <input id="starContrast" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="starContrastValue">0</span>
+        </label>
+        <label>яркость звёзд
+          <input id="starBrightness" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="starBrightnessValue">0</span>
+        </label>
+        <label>вращение звёзд
+          <input id="starSpin" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="starSpinValue">0</span>
+        </label>
+        <label>движение вперёд
+          <input id="starForward" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="starForwardValue">0</span>
+        </label>
+      </div>
+    </div>
+    <div class="control-group">
+      <div class="group-title">синяя планета</div>
+      <div class="group-row">
+        <label>масса планеты
+          <input id="planetMass" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="planetMassValue">0</span>
+        </label>
+        <label>скорость вращения
+          <input id="planetSpeed" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="planetSpeedValue">0</span>
+        </label>
+        <label>орбита
+          <input id="planetDistance" type="range" min="0" max="100" value="80" />
+          <span class="control-value" id="planetDistanceValue">80</span>
+        </label>
+      </div>
+    </div>
+    <div class="control-group">
+      <div class="group-title">красная планета</div>
+      <div class="group-row">
+        <label>масса планеты
+          <input id="planet2Mass" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="planet2MassValue">0</span>
+        </label>
+        <label>скорость вращения
+          <input id="planet2Speed" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="planet2SpeedValue">0</span>
+        </label>
+        <label>орбита
+          <input id="planet2Distance" type="range" min="0" max="100" value="80" />
+          <span class="control-value" id="planet2DistanceValue">80</span>
+        </label>
+      </div>
+    </div>
+    <div class="control-group">
+      <div class="group-title">точка вращения</div>
+      <div class="group-row">
+        <label>притяжение
+          <input id="sunAttraction" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="sunAttractionValue">0</span>
+        </label>
+      </div>
+    </div>
+    <div class="control-group">
+      <div class="group-title">звук</div>
+      <div class="group-row">
+        <button id="soundToggle" type="button" class="mic-toggle" aria-pressed="false">
+          <span class="mic-toggle-dot"></span>
+          <span id="soundToggleLabel">звук: выкл</span>
+        </button>
+        <label>громкость
+          <input id="volume" type="range" min="0" max="100" value="50" />
+          <span class="control-value" id="volumeValue" data-suffix="%">50%</span>
+        </label>
+        <label>частота
+          <input id="frequency" type="range" min="0" max="100" value="15" />
+          <span class="control-value" id="frequencyValue" data-suffix="%">15%</span>
+        </label>
+        <label>дилей
+          <input id="delay" type="range" min="0" max="100" value="60" />
+          <span class="control-value" id="delayValue" data-suffix="%">60%</span>
+        </label>
+      </div>
+    </div>
+    <div class="control-group">
+      <div class="group-title">присутствие</div>
+      <div class="group-row">
+        <label>чувствительность
+          <input id="presence" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="presenceValue">0</span>
+        </label>
+        <button id="presenceToggle" type="button" class="mic-toggle" aria-pressed="false">
+          <span class="mic-toggle-dot"></span>
+          <span id="presenceToggleLabel">микрофон: выкл</span>
+        </button>
+      </div>
+    </div>
+    <div class="chaos-frame">
+      <button id="chaosBtn" type="button" class="chaos-btn">Хаос</button>
+    </div>
+  </div>
+
+  <script>
+    const FALLBACK_WORDS = [
+      'понимание', 'защита', 'общение', 'страсть', 'тишина',
+      'забота', 'нежность', 'радость', 'щедрость', 'близость',
+      'осознание', 'охрана', 'диалог', 'любовь', 'покой',
+      'внимание', 'ласка', 'счастье', 'бескорыстие', 'родство',
+      'ясность', 'безопасность', 'беседа', 'обожание', 'мир',
+      'участие', 'теплота', 'блаженство', 'великодушие', 'связь',
+      'мудрость', 'уверенность', 'дружба', 'восхищение', 'спокойствие',
+      'помощь', 'уют', 'удовольствие', 'доброта', 'привязанность',
+      'знание', 'надежность', 'товарищество', 'благоговение', 'умиротворение',
+      'содействие', 'утешение', 'удовлетворение', 'добро', 'доверие',
+      'опыт', 'стабильность', 'приятельство', 'восторг', 'безмятежность',
+      'подмога', 'успокоение', 'похвала', 'благо', 'единство',
+      'правда', 'опора', 'братство', 'почтение', 'равновесие',
+      'поддержка', 'облегчение', 'одобрение', 'польза', 'единение',
+      'честность', 'покровительство', 'общность', 'уважение', 'баланс',
+      'сочувствие', 'сопереживание', 'принятие', 'справедливость', 'жизнь',
+      'открытость', 'опека', 'солидарность', 'эмоция', 'гармония',
+      'сострадание', 'сердце', 'благодарность', 'верность', 'эмпатия',
+      'спасение', 'искренность', 'сплоченность', 'переживание', 'согласие',
+      'милосердие', 'душа', 'признательность', 'преданность', 'чувство'
+    ];
+
+    const PALETTE = {
+      background: '#0e0f12',
+      light: '#e6e8ee',
+      muted: '#8a8f99',
+      orange: '#ff7a50',
+      blue: '#5aa9ff'
+    };
+
+    // Вступление: слово «любовь» весь этот путь плавно растворяется, а
+    // свечение от него растёт — и из этого свечения рождаются точки слов
+    // (те самые, в которые раньше рассыпались 100 слов). Это одно общее,
+    // медленное движение на протяжении целой минуты — сетка слов больше не
+    // показывается как читаемый текст вовсе, только точками.
+    const INTRO_MS = 60000;
+    const WORD_DISSOLVE_SPEEDUP = 2; // буква «А» тает вдвое быстрее общего минутного хода
+    const INTRO_GLOW_BASE = 70;     // радиус свечения и буквы на экране в начале, px
+    const INTRO_START_ALPHA = 0.85; // буква и свечение на старте уже на 15% прозрачны
+    // Буква «А» — вырезанный заранее из картинки тигла (offline, вручную
+    // проверенным вырезом) прозрачный PNG — тигл_буква.png, встроен тут же
+    // как base64. Фона-картинки вокруг неё больше нет — вместо тигла
+    // свечение из 5 цветов палитры, генерируется прямо здесь (см.
+    // GLOW_COLORS, sampleGlowColor() и drawIntro()).
+    // Порядок стоп-цветов от центра свечения к краю — по образцу присланного
+    // фото тигла: синий, зелёный, белый, красный, жёлтый. «Синий» и «белый»
+    // — те же PALETTE.blue и PALETTE.light. «Зелёный», «красный» и «жёлтый»
+    // в основной палитре отсутствуют — исключение из правила пяти цветов,
+    // осознанное: пользователь сам назвал эти цвета именно для этого
+    // свечения.
+    const GLOW_COLORS = [PALETTE.blue, '#2ecc8f', PALETTE.light, '#ff5c5c', '#ffd166'];
+
+    // Интерполирует по GLOW_COLORS: t=0 — центр свечения, t=1 — край.
+    function sampleGlowColor(t) {
+      const clamped = constrain(t, 0, 1);
+      const scaled = clamped * (GLOW_COLORS.length - 1);
+      const idx = Math.min(GLOW_COLORS.length - 2, Math.floor(scaled));
+      const localT = scaled - idx;
+      return lerpColor(color(GLOW_COLORS[idx]), color(GLOW_COLORS[idx + 1]), localT);
+    }
+    const TIGLE_GLYPH_DATA_URI = "data:image/png;base64,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kiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJkiRJ0uf6/wPH/7hgz7jzMwAAAABJRU5ErkJggg==";
+
+    const COLS = 5;
+    const HOLD_MS = 4400;
+    const STAGGER_MS = 55;
+    const CRUMBLE_MS = 1750;
+    const DOT_STEP = 4;
+    const DOT_SIZE = 3.2;
+    const FLOW_IN_MS = 2600;
+    const MAX_SPEED = 2.0;
+    const TRAIL_ALPHA = 52;
+    const SHATTER_AT_MS = 3000;    // через сколько после загрузки страницы слова разом раскалываются
+    const SHATTER_DURATION_MS = 650; // резкий, короткий вылет осколка к своей точке на экране
+    const SHATTER_MIN_DIST = 220;  // разлёт хаотичный: у каждой точки своя, сеяная случайная дальность
+    const SHATTER_MAX_DIST = 620;
+    const FIELD_CELL = 40;
+    const FIELD_WAVE = 0.055;
+    const LINK_RADIUS = 64;
+    const LINK_MIN = 20;
+    const LINK_WANTED = 46;
+    const LINK_MAX_SHARE = 0.22;
+    const DIST_MIN_SHARE = 0.10;
+    const DIST_MAX_SHARE = 0.80;
+    const COHESION_RATE = 0.03;     // прирост тяги к центру слова на пиксель удаления
+    const COHESION_MAX_PULL = 1.6;  // потолок этой тяги, чтобы не забить остальные силы
+    const PRESENCE_OSC_AMP = 3.1;      // наибольший взмах от звука, px за кадр — не больше точки
+    const PRESENCE_OSC_SPEED = 0.0032; // скорость колебания траектории, рад/мс — путь остаётся медленным
+    // Блок «планета»: массивное тело на орбите вокруг центра сцены.
+    // Реальные масса и период вращения Луны — точка отсчёта на нуле
+    // ползунков; масса растёт до массы Сатурна, скорость и расстояние —
+    // до ×100 от лунных. Настоящий период Луны (27,3 суток) на экране
+    // никто не станет ждать, поэтому он сжат в сценические секунды —
+    // соотношение (×100 на максимуме) от этого не меняется.
+    const MOON_MASS_KG = 7.342e22;
+    const SATURN_MASS_KG = 5.683e26;
+    const MOON_ORBIT_PERIOD_S = 42;     // один оборот на нулевой скорости
+    const PLANET_ORBIT_RX = 230;        // радиус орбиты по x на нулевом расстоянии, px
+    const PLANET_ORBIT_RY = 95;         // радиус орбиты по y на нулевом расстоянии, px — заметно меньше PLANET_ORBIT_RX,
+                                         // поэтому орбита вокруг солнца всегда читается как эллипс, а не окружность
+    const PLANET_ORBIT_GROWTH = 4;      // во сколько раз орбита растёт на экране к 100% расстояния —
+                                         // буквальные ×100 увели бы её далеко за пределы холста навсегда
+    const PLANET_RADIUS_MIN = 3;        // видимый радиус тела на массе Луны, px
+    const PLANET_RADIUS_MAX = 9.3;      // видимый радиус тела на массе Сатурна, px — размер уменьшен втрое
+    const PLANET_PULL_BASE = 2600;      // сила притяжения при массе и расстоянии Луны — увеличена в 10 раз
+    const PLANET_PULL_MAX = 6.4;        // потолок сдвига точки от притяжения за кадр, px
+    const PLANET_SOFTEN = 24;           // минимальная дистанция в формуле силы — не даёт точке сорваться рывком
+    // Красная планета — второе тело со своими контролами, аналогичными
+    // синей (масса, скорость, орбита), но дальше от центра: во столько же
+    // раз, во сколько орбита Марса больше орбиты Земли вокруг Солнца.
+    const MARS_EARTH_ORBIT_RATIO = 1.524; // 227.9 млн км / 149.6 млн км
+    const PLANET2_ORBIT_RX = PLANET_ORBIT_RX * MARS_EARTH_ORBIT_RATIO;
+    const PLANET2_ORBIT_RY = PLANET_ORBIT_RY * MARS_EARTH_ORBIT_RATIO;
+    // Точка вращения: неподвижное «солнце» в центре сцены. На нуле
+    // притяжения масса точки — ноль (не Луна, как у планеты: тут просто
+    // «нет тяги»), на максимуме — масса, подобная массе Солнца.
+    const SUN_MASS_KG = 1.989e30;
+    const SUN_PULL_BASE = 0.013;  // сила притяжения на единицу массы — в 10 раз меньше исходной, подобранной под масштаб массы Солнца
+    const SUN_PULL_MAX = 8.5;     // потолок сдвига точки от притяжения за кадр, px — чуть выше, чем у планеты
+    const SUN_SOFTEN = 40;        // минимальная дистанция в формуле силы, чтобы у самого центра не рвало точки
+    // «Сфера»: диаметр орбиты растёт вместе с притяжением точки вращения —
+    // от почти незаметной при нулевом притяжении до широкой при полном.
+    const SPHERE_RADIUS_MIN = 60;   // радиус сферы при нулевом притяжении, px
+    const SPHERE_RADIUS_MAX = 520;  // радиус сферы при полном притяжении, px
+    const SPHERE_ANGULAR_SPEED = 0.8; // скорость обращения по сфере при flow=1, рад/кадр
+    const SPHERE_PHI_SPEED = 0.045;   // скорость смены полюса (глубины) — заметно медленнее азимута
+    // Разброс личной скорости полюса у каждой точки — без него все точки
+    // проходят глубину синхронно, и вся сфера разом то приближается, то
+    // отдаляется, то есть видно как пульсацию яркости всего облака сразу.
+    const SPHERE_PHI_RATE_MIN = 0.6;
+    const SPHERE_PHI_RATE_MAX = 1.4;
+    const SUN_RADIUS_MIN = 4;     // видимый радиус точки при нулевом притяжении — тускло, но видно
+    const SUN_RADIUS_MAX = 14;    // видимый радиус точки при максимальном притяжении
+    // Блок «глубина и звёздное пространство»: вся сцена теперь мыслится не
+    // как плоскость, а как объём, который вместе с центром летит вперёд
+    // сквозь звёзды — подобно тому, как солнечная система движется сквозь
+    // галактику. Технически это не полноценная 3D-физика (гравитация и
+    // столкновения по-прежнему считаются в исходной плоскости, чтобы не
+    // трогать уже настроенное поведение), а перспективная проекция: у точек
+    // и планет появляется координата глубины z, из которой считается
+    // масштаб отображения (ближе — крупнее, дальше — мельче) через общее
+    // для всех фокусное расстояние.
+    const DEPTH_FOCAL = 640;            // фокусное расстояние проекции глубины
+    const POINT_DEPTH_AMPLITUDE = 210;  // на сколько точка «дышит» вперёд-назад по глубине
+    const POINT_DEPTH_SPEED = 0.00046;  // скорость этого дыхания, рад/мс — медленнее общего breathTime
+    const PLANET_DEPTH_TILT = 150;      // наклон орбиты синей планеты по глубине — орбита читается наклонной
+    const PLANET2_DEPTH_TILT = 150;     // то же для красной, со своей фазой — планеты не ныряют синхронно
+    // Звёздное поле — то самое «звёздное пространство», сквозь которое летит
+    // сцена. У каждой звезды своя точка в объёме перед камерой; каждый кадр
+    // она приближается (z уменьшается на скорость полёта), а рисуется не
+    // точкой, а отрезком от прошлого экранного положения к нынешнему — чем
+    // ближе звезда, тем сильнее меняется её проекция за кадр и тем длиннее
+    // отрезок, поэтому именно ближайшие звёзды читаются как линии, отражающие
+    // скорость, а дальние остаются едва заметными точками.
+    const STAR_COUNT = 240;
+    const STAR_FIELD_SPREAD = 900;      // разброс звёзд по x/y на дальней границе
+    const STAR_NEAR_Z = 30;             // ближе этого звезда «пролетела» — её пересевают вдаль
+    const STAR_FAR_Z = 1700;            // дальняя граница, где рождаются новые звёзды
+    const STAR_FLIGHT_SPEED = 900;      // скорость полёта сквозь звёздное поле, условных единиц/с
+    // У каждой звезды свой множитель скорости в этих пределах — без него
+    // все звёзды шли бы строго в ногу и читались бы как летящие группами,
+    // единым строем, а не вразнобой.
+    const STAR_SPEED_MUL_MIN = 0.5;
+    const STAR_SPEED_MUL_MAX = 1.8;
+    const STAR_SPIN_MAX_SPEED = ((2 * Math.PI) / 15) * 10; // скорость вращения поля звёзд вокруг оси полёта на 100%, рад/с — Math.PI, не TWO_PI: этот файл исполняется до того, как p5 определит свои глобальные константы
+    const STAR_TAIL_STRETCH = 3;        // во сколько раз хвост звезды длиннее её смещения за один кадр
+    const COLLIDE_DIST = DOT_SIZE;       // центры ближе этого — точки касаются
+    const COLLIDE_CELL = DOT_SIZE * 4;   // ячейка сетки поиска соседних точек
+    const FLASH_MS = 100;                // вспышка при столкновении держится 0,1с
+    const CHIME_VOICES = 8;              // столько «хрустальных» голосов может звучать разом
+    const CHIME_MIN_GAP_MS = 90;         // не даёт вспышкам столкновений слиться в шум
+    const CHIME_FREQ_AT_0 = 100;         // ползунок «частота» на 0
+    const CHIME_FREQ_AT_100 = 800;       // ползунок «частота» на 100%
+    const CHIME_PARTIAL_MIN = 1.004;     // второй тон почти в унисон с первым — так рождается
+    const CHIME_PARTIAL_MAX = 1.012;     // медленное биение, «пение» бокала, а не бряцание металла
+    const CHIME_ATTACK = 0.006;          // мягкий, но быстрый удар — не щелчок и не нарастание
+    const CHIME_DECAY = 0.55;            // долгое, тающее пение, как у настоящего хрусталя
+    const CHIME_PEAK = 0.07;             // тихо — фоновый отблеск звука, а не акцент
+    const CHIME_PARTIAL_GAIN = 0.85;     // почти равен основному тону — иначе биения не слышно
+    const CHIME_THIRD_RATIO = Math.pow(2, -4 / 12); // большая терция вниз (12-тон. равномерный строй)
+    const CHIME_THIRD_GAIN = 0.7;        // тише основного тона — подголосок, а не дублёр
+    const CHIME_FOURTH_RATIO = Math.pow(2, -2 / 12); // ещё целый тон вниз — уже от третьего тона
+    const CHIME_FOURTH_GAIN = 0.55;      // самый тихий и самый низкий голос в звоне
+    const CHIME_FIFTH_RATIO = Math.pow(2, 7 / 12);   // чистая квинта вверх от основного тона — достраивает аккорд
+    const CHIME_FIFTH_GAIN = 0.5;        // тише основного тона, добавляет объём сверху
+    const CHIME_OCTAVE_RATIO = 2;        // октава вверх от основного тона — завершает звучание аккорда
+    const CHIME_OCTAVE_GAIN = 0.35;      // самый тихий и самый высокий голос в аккорде
+
+    let introWord = 'любовь';   // слово вступления — читается из слова1.txt, по умолчанию «любовь»
+    let introFontSize = 0;
+    let introGlyphImg = null;   // вырезанная буква «А» (тигл_буква.png), прозрачный фон
+    let introGlyphReady = false;
+    let introGlyphLayer = null; // готовый слой для отрисовки — см. buildIntroLayers()
+    let loadedWords = [];
+    let words = [];
+    let pieces = [];
+    let startedAt = 0;
+    let shatterTriggered = false;
+    let field = null;
+    let fieldGain = 0;
+    let activePoints = [];
+    let liveScratch = [];
+    let linkGrid = new Map();
+    let collideGrid = new Map();
+    let nextPointId = 0;
+    let audioCtx = null;
+    let chimeVoices = [];
+    let nextChimeVoice = 0;
+    let lastChimeAt = -Infinity;
+    let audioReady = false;
+    let densityInput = null;
+    let speedInput = null;
+    let vortexInput = null;
+    let sphereInput = null;
+    let distanceInput = null;
+    let cohesionInput = null;
+    let linksInput = null;
+    let glowInput = null;
+    let trailInput = null;
+    let presenceInput = null;
+    let volumeInput = null;
+    let frequencyInput = null;
+    let soundOutputEnabled = false;   // тумблер «звук вкл/выкл» — того же вида, что у микрофона
+    let soundToggleBtn = null;
+    let soundToggleLabel = null;
+    let delayInput = null;
+    let delayNode = null;
+    let delayFeedback = null;
+    let delayWet = null;
+    // Микрофон как вход, камеры в проекте больше нет вообще. На нуле
+    // микрофон не запрашивается и не слушается. Выше нуля громкость звука
+    // раскачивает движение частиц: тише — спокойнее путь, громче — шире
+    // взмах, и у каждой частицы этот взмах идёт по своей фазе, а не разом.
+    let micStream = null;
+    let micSource = null;
+    let analyser = null;
+    let micData = null;
+    let micReady = false;
+    let micRequesting = false;
+    let soundLevel = 0;     // сглаженная громкость микрофона, 0..1
+    let presenceDrive = 0;  // 0 — колебаний нет, 1 — раскачка на полную
+    // Значок присутствия: маленькая контурная фигура в правом нижнем углу.
+    // Раньше части загорались по зонам кадра камеры, теперь все они
+    // реагируют на одну и ту же громкость, но с разной инерцией — оттого
+    // фигура «дышит» неровно, а не мигает разом.
+    const zones = { head: 0, torso: 0, left: 0, right: 0 };
+    let presenceAt = 0;
+    let presenceEnabled = false;    // тумблер «микрофон вкл/выкл» — отдельный от ползунка чувствительности
+    let presenceToggleBtn = null;
+    let presenceToggleLabel = null;
+    let planetMassInput = null;
+    let planetSpeedInput = null;
+    let planetDistanceInput = null;
+    let planetAngle = 0;
+    let planetAt = 0;
+    let planetX = 0;
+    let planetY = 0;
+    let planetMassRatio = 1;
+    let planetDistanceRatio = 1;
+    let planetRadiusPx = PLANET_RADIUS_MIN;
+    let planet2MassInput = null;
+    let planet2SpeedInput = null;
+    let planet2DistanceInput = null;
+    let planet2Angle = 0;
+    let planet2At = 0;
+    let planet2X = 0;
+    let planet2Y = 0;
+    let planet2MassRatio = 1;
+    let planet2DistanceRatio = 1;
+    let planet2RadiusPx = PLANET_RADIUS_MIN;
+    let sunAttractionInput = null;
+    let sunMassRatio = 0;
+    let sphereRadiusPx = 0;  // радиус «сферы» задаёт ползунок «сфера» — считается в draw()
+    let sunRadiusPx = SUN_RADIUS_MIN;
+    let planetDepthZ = 0;
+    let planetScale = 1;
+    let planet2DepthZ = 0;
+    let planet2Scale = 1;
+    let stars = [];
+    let starsAt = 0;
+    let starSpeedInput = null;
+    let starContrastInput = null;
+    let starBrightnessInput = null;
+    let starSpinInput = null;
+    let starForwardInput = null;
+    let starSpinAngle = 0;
+    let cloudHue = 17;
+    let cloudSaturation = 68;
+    let placeHsbDot = null;
+
+    function preload() {
+      // Буква «А» грузится независимо от способа открытия страницы —
+      // в отличие от текстовых файлов ниже, встроенная как base64 картинка
+      // доступна и при открытии файла двойным кликом (file://).
+      try {
+        introGlyphImg = loadImage(
+          TIGLE_GLYPH_DATA_URI,
+          () => { introGlyphReady = true; },
+          () => { introGlyphReady = false; }
+        );
+      } catch (err) {
+        introGlyphReady = false;
+      }
+
+      if (window.location.protocol === 'file:') {
+        loadedWords = FALLBACK_WORDS.slice();
+        return;
+      }
+
+      // Вступительное слово («любовь» по умолчанию) — отдельный файл,
+      // отдельная переменная, к сетке слов отношения не имеет.
+      try {
+        loadStrings(
+          'слова1.txt',
+          lines => {
+            const trimmed = (lines || []).map(line => line.trim()).filter(Boolean);
+            if (trimmed.length) introWord = trimmed[0];
+          },
+          () => {}
+        );
+      } catch (err) {
+        // остаётся дефолт introWord
+      }
+
+      try {
+        loadedWords = loadStrings(
+          'слова2.txt',
+          lines => { loadedWords = lines; },
+          () => { loadedWords = FALLBACK_WORDS.slice(); }
+        );
+      } catch (err) {
+        loadedWords = FALLBACK_WORDS.slice();
+      }
+    }
+
+    function setup() {
+      const canvas = createCanvas(1280, 720);
+      canvas.parent('stage');
+      pixelDensity(1);
+      frameRate(30);
+      randomSeed(7);
+      noiseSeed(7);
+      textFont('PT Mono');
+      textAlign(CENTER, CENTER);
+      noStroke();
+
+      words = (loadedWords && loadedWords.length ? loadedWords : FALLBACK_WORDS)
+        .map(line => line.trim())
+        .filter(Boolean);
+
+      buildIntroLayers();
+      buildGrid();
+      introFontSize = fitTextSize(introWord, width * 0.82, 150) / 4;
+      buildField();
+      buildStars();
+      densityInput = document.getElementById('density');
+      speedInput = document.getElementById('speed');
+      vortexInput = document.getElementById('vortex');
+      sphereInput = document.getElementById('sphere');
+      distanceInput = document.getElementById('distance');
+      cohesionInput = document.getElementById('cohesion');
+      linksInput = document.getElementById('links');
+      glowInput = document.getElementById('glow');
+      trailInput = document.getElementById('trail');
+      starSpeedInput = document.getElementById('starSpeed');
+      starContrastInput = document.getElementById('starContrast');
+      starBrightnessInput = document.getElementById('starBrightness');
+      starSpinInput = document.getElementById('starSpin');
+      starForwardInput = document.getElementById('starForward');
+      presenceInput = document.getElementById('presence');
+      volumeInput = document.getElementById('volume');
+      frequencyInput = document.getElementById('frequency');
+      soundToggleBtn = document.getElementById('soundToggle');
+      soundToggleLabel = document.getElementById('soundToggleLabel');
+      delayInput = document.getElementById('delay');
+      planetMassInput = document.getElementById('planetMass');
+      planetSpeedInput = document.getElementById('planetSpeed');
+      planetDistanceInput = document.getElementById('planetDistance');
+      planet2MassInput = document.getElementById('planet2Mass');
+      planet2SpeedInput = document.getElementById('planet2Speed');
+      planet2DistanceInput = document.getElementById('planet2Distance');
+      sunAttractionInput = document.getElementById('sunAttraction');
+      presenceToggleBtn = document.getElementById('presenceToggle');
+      presenceToggleLabel = document.getElementById('presenceToggleLabel');
+      setupHsbWheel();
+      setupChaosButton();
+      setupControlsPanel();
+      setupPresenceToggle();
+      setupSoundToggle();
+      setupChimeVoices();
+      window.addEventListener('pointerdown', unlockAudioOnce);
+      window.addEventListener('keydown', unlockAudioOnce);
+      startedAt = millis();
+    }
+
+    // Голосовой пул для звона стекла при столкновениях — на чистом Web
+    // Audio API, без p5.sound: осцилляторы и gain-узлы не требуют никаких
+    // AudioWorklet-модулей, поэтому спокойно работают и при открытии файла
+    // двойным кликом (file://), где загрузка worklet-скриптов через blob
+    // браузером запрещена. Несколько голосов крутятся всё время на нулевой
+    // громкости и переиспользуются по кругу — короткие звоны не создают
+    // новые узлы на каждое столкновение, а просто перезапускают готовый.
+    function setupChimeVoices() {
+      try {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        audioCtx = new Ctx();
+
+        // Общая шина delay: часть звона уходит в задержку, зацикливается
+        // сама на себя (затухающее эхо) и возвращается в общий выход —
+        // сила эффекта целиком регулируется ползунком «дилей».
+        delayNode = audioCtx.createDelay(1.0);
+        delayNode.delayTime.value = 0.26;
+        delayFeedback = audioCtx.createGain();
+        delayFeedback.gain.value = 0;
+        delayWet = audioCtx.createGain();
+        delayWet.gain.value = 0;
+        delayNode.connect(delayFeedback).connect(delayNode);
+        delayNode.connect(delayWet).connect(audioCtx.destination);
+
+        for (let i = 0; i < CHIME_VOICES; i++) {
+          const tone = audioCtx.createOscillator();
+          const tonePartial = audioCtx.createOscillator();
+          const toneThird = audioCtx.createOscillator();
+          const toneFourth = audioCtx.createOscillator();
+          const toneFifth = audioCtx.createOscillator();
+          const toneOctave = audioCtx.createOscillator();
+          const toneGain = audioCtx.createGain();
+          const partialGain = audioCtx.createGain();
+          const thirdGain = audioCtx.createGain();
+          const fourthGain = audioCtx.createGain();
+          const fifthGain = audioCtx.createGain();
+          const octaveGain = audioCtx.createGain();
+          tone.type = 'sine';
+          tonePartial.type = 'sine';
+          toneThird.type = 'sine';
+          toneFourth.type = 'sine';
+          toneFifth.type = 'sine';
+          toneOctave.type = 'sine';
+          toneGain.gain.value = 0;
+          partialGain.gain.value = 0;
+          thirdGain.gain.value = 0;
+          fourthGain.gain.value = 0;
+          fifthGain.gain.value = 0;
+          octaveGain.gain.value = 0;
+          tone.connect(toneGain).connect(audioCtx.destination);
+          tonePartial.connect(partialGain).connect(audioCtx.destination);
+          toneThird.connect(thirdGain).connect(audioCtx.destination);
+          toneFourth.connect(fourthGain).connect(audioCtx.destination);
+          toneFifth.connect(fifthGain).connect(audioCtx.destination);
+          toneOctave.connect(octaveGain).connect(audioCtx.destination);
+          toneGain.connect(delayNode);
+          partialGain.connect(delayNode);
+          thirdGain.connect(delayNode);
+          fourthGain.connect(delayNode);
+          fifthGain.connect(delayNode);
+          octaveGain.connect(delayNode);
+          tone.start();
+          tonePartial.start();
+          toneThird.start();
+          toneFourth.start();
+          toneFifth.start();
+          toneOctave.start();
+          chimeVoices.push({
+            tone, partial: tonePartial, third: toneThird, fourth: toneFourth, fifth: toneFifth, octave: toneOctave,
+            toneGain, partialGain, thirdGain, fourthGain, fifthGain, octaveGain
+          });
+        }
+      } catch (err) {
+        chimeVoices = [];
+      }
+    }
+
+    // Браузер не даёт звуку играть без жеста пользователя — ловим первый
+    // клик или нажатие клавиши где угодно на странице и один раз включаем
+    // звук через него, без всякой подсказки на экране.
+    function unlockAudioOnce() {
+      window.removeEventListener('pointerdown', unlockAudioOnce);
+      window.removeEventListener('keydown', unlockAudioOnce);
+      try {
+        if (audioCtx) audioCtx.resume().then(() => {
+          audioReady = true;
+          updateSoundToggleUI();
+        });
+      } catch (err) {
+        // звук недоступен — на картинку это никак не влияет
+      }
+    }
+
+    // Точное затухание амплитуды одного тона: атака и спад планируются
+    // напрямую через Web Audio, а не плавным .value=, чтобы момент удара
+    // был резким («тинь»), а не смазанным плавным нарастанием.
+    function ringChimeGain(gainParam, peak, now) {
+      gainParam.cancelScheduledValues(now);
+      gainParam.setValueAtTime(gainParam.value, now);
+      gainParam.linearRampToValueAtTime(peak, now + CHIME_ATTACK);
+      gainParam.linearRampToValueAtTime(0, now + CHIME_ATTACK + CHIME_DECAY);
+    }
+
+    // Один тихий звон хрустального бокала: два почти совпадающих по высоте
+    // тона (как два собственных колебания стенки бокала) медленно бьются
+    // друг о друга — это и слышно как «пение» стекла, а не как удар, плюс
+    // третий, более тихий тон на большую терцию ниже — подголосок, который
+    // делает звон объёмнее. Все тона высоко в регистре, но негромкие, и
+    // тают несколько сотен миллисекунд. Голос берётся из пула по кругу.
+    function triggerGlassChime(strength) {
+      if (!soundOutputEnabled) return;
+      if (!audioReady || !chimeVoices.length) return;
+      try {
+        const voice = chimeVoices[nextChimeVoice];
+        nextChimeVoice = (nextChimeVoice + 1) % chimeVoices.length;
+
+        const freqPos = readControl(frequencyInput, 15) / 100;
+        const baseFreq = CHIME_FREQ_AT_0 * Math.pow(CHIME_FREQ_AT_100 / CHIME_FREQ_AT_0, freqPos);
+        const ratio = random(CHIME_PARTIAL_MIN, CHIME_PARTIAL_MAX);
+        const now = audioCtx.currentTime;
+        voice.tone.frequency.setValueAtTime(baseFreq, now);
+        voice.partial.frequency.setValueAtTime(baseFreq * ratio, now);
+        const thirdFreq = baseFreq * CHIME_THIRD_RATIO;
+        voice.third.frequency.setValueAtTime(thirdFreq, now);
+        voice.fourth.frequency.setValueAtTime(thirdFreq * CHIME_FOURTH_RATIO, now);
+        voice.fifth.frequency.setValueAtTime(baseFreq * CHIME_FIFTH_RATIO, now);
+        voice.octave.frequency.setValueAtTime(baseFreq * CHIME_OCTAVE_RATIO, now);
+
+        const loud = constrain(strength / 2.2, 0.14, 1);
+        const volume = readControl(volumeInput, 50) / 100;
+        const peak = CHIME_PEAK * loud * volume;
+        ringChimeGain(voice.toneGain.gain, peak, now);
+        ringChimeGain(voice.partialGain.gain, peak * CHIME_PARTIAL_GAIN, now);
+        ringChimeGain(voice.thirdGain.gain, peak * CHIME_THIRD_GAIN, now);
+        ringChimeGain(voice.fourthGain.gain, peak * CHIME_FOURTH_GAIN, now);
+        ringChimeGain(voice.fifthGain.gain, peak * CHIME_FIFTH_GAIN, now);
+        ringChimeGain(voice.octaveGain.gain, peak * CHIME_OCTAVE_GAIN, now);
+
+        if (delayWet && delayFeedback) {
+          const delayAmount = readControl(delayInput, 0) / 100;
+          delayWet.gain.setValueAtTime(delayAmount * 0.5, now);
+          delayFeedback.gain.setValueAtTime(delayAmount > 0 ? 0.2 + delayAmount * 0.25 : 0, now);
+        }
+      } catch (err) {
+        // звук — необязательная надстройка, её сбой не должен ронять анимацию
+      }
+    }
+
+    function buildGrid() {
+      pieces = [];
+      const rows = Math.ceil(words.length / COLS);
+      const cellW = width / COLS;
+      const cellH = height / rows;
+
+      words.forEach((label, index) => {
+        const col = index % COLS;
+        const row = Math.floor(index / COLS);
+        const cx = col * cellW + cellW / 2;
+        const cy = row * cellH + cellH / 2;
+        const fontSize = fitTextSize(label, cellW - 24, Math.min(56, cellH * 0.62));
+        const colorName = index % 13 === 4 ? 'orange' : index % 11 === 2 ? 'blue' : 'light';
+        const points = sampleWord(label, fontSize, cellW - 18, cellH - 12);
+
+        // Точка навсегда помнит слово, из которого возникла: индекс и текст
+        // слова записаны один раз при рождении и больше нигде не меняются,
+        // поэтому в любой момент времени можно узнать происхождение точки.
+        for (const point of points) {
+          point.px = cx + point.x;
+          point.py = cy + point.y;
+          point.wordIndex = index;
+          point.word = label;
+        }
+
+        pieces.push({
+          label,
+          cx,
+          cy,
+          fontSize,
+          colorName,
+          points,
+          delay: (row + col) * STAGGER_MS
+        });
+      });
+    }
+
+    function fitTextSize(label, maxWidth, preferred) {
+      let size = preferred;
+      textSize(size);
+      while (textWidth(label) > maxWidth && size > 30) {
+        size -= 1;
+        textSize(size);
+      }
+      return size;
+    }
+
+    // Готовит слой буквы «А» к отрисовке — единственная картинка вступления,
+    // фон теперь считается (см. GLOW_COLORS/sampleGlowColor), а не грузится.
+    function buildIntroLayers() {
+      try {
+        if (introGlyphReady && introGlyphImg) {
+          introGlyphLayer = introGlyphImg;
+        }
+      } catch (err) {
+        introGlyphLayer = null;
+      }
+    }
+
+    let sampler = null;
+
+    function sampleWord(label, fontSize, boxW, boxH) {
+      const w = Math.floor(boxW);
+      const h = Math.floor(boxH);
+      if (!sampler || sampler.width !== w || sampler.height !== h) {
+        sampler = createGraphics(w, h);
+        sampler.pixelDensity(1);
+      }
+      const layer = sampler;
+      layer.clear();
+      layer.textFont('PT Mono');
+      layer.textSize(fontSize);
+      layer.textAlign(CENTER, CENTER);
+      layer.noStroke();
+      layer.fill(255);
+      layer.text(label, layer.width / 2, layer.height / 2 - 1);
+      layer.loadPixels();
+
+      const result = [];
+      for (let y = 1; y < layer.height - 1; y += DOT_STEP) {
+        for (let x = 1; x < layer.width - 1; x += DOT_STEP) {
+          const alpha = layer.pixels[(x + y * layer.width) * 4 + 3];
+          if (alpha > 90) {
+            const u = x / layer.width - 0.5;
+            const v = y / layer.height - 0.5;
+            const dist = Math.hypot(u, v) / Math.SQRT1_2; // 0 в центре облака, ~1 в углу
+            const glowColor = sampleGlowColor(dist);
+            const tigleR = red(glowColor);
+            const tigleG = green(glowColor);
+            const tigleB = blue2(glowColor);
+            result.push({
+              id: nextPointId++,
+              x: x - layer.width / 2,
+              y: y - layer.height / 2,
+              px: 0,
+              py: 0,
+              vx: 0,
+              vy: 0,
+              phase: random(TWO_PI),
+              densityRank: random(),
+              linkRank: random(),
+              r: 230,
+              g: 232,
+              b: 238,
+              tigleR: tigleR,
+              tigleG: tigleG,
+              tigleB: tigleB,
+              a: 0,
+              reveal: random(0, 0.72),
+              tone: random(),
+              flashUntil: 0
+            });
+          }
+        }
+      }
+      return result;
+    }
+
+    function draw() {
+      const bg = color(PALETTE.background);
+      const trail = readControl(trailInput, 80) / 100;
+      bg.setAlpha(255);
+      noStroke();
+      fill(bg);
+      rect(0, 0, width, height);
+
+      // Звёздное поле — самый дальний слой сцены, поэтому рисуется первым,
+      // сразу по фону, до слов, планет и точки вращения.
+      updateStars();
+      drawStars();
+
+      const elapsed = millis() - startedAt;
+      // Растворение слова «любовь» и рождение точек слов из его свечения —
+      // одно общее, медленное движение на протяжении целой минуты. Тот же
+      // прогресс, что тает слово, двигает и появление точек.
+      const progress = drawIntro(elapsed);
+
+      const density = 0.1 + 0.9 * (readControl(densityInput, 60) / 100);
+      const speedMul = readControl(speedInput, 100) / 100;
+      const vortex = readControl(vortexInput, 100) / 100;
+      const sphere = readControl(sphereInput, 0) / 100;
+      // Размер сферы задаёт только этот ползунок — к притяжению точки
+      // вращения он больше не привязан.
+      sphereRadiusPx = lerp(SPHERE_RADIUS_MIN, SPHERE_RADIUS_MAX, sphere);
+      const distance = readControl(distanceInput, 100) / 100;
+      const cohesion = readControl(cohesionInput, 0) / 100;
+      // Удалённость задаёт радиус, дальше которого точки одного слова не
+      // могут разлететься друг от друга: 10% размера экрана на нуле, 80%
+      // на максимуме. Считается он от центра их же облака, в updateWordPoints.
+      const screenSize = Math.hypot(width, height);
+      const maxSpread = lerp(screenSize * DIST_MIN_SHARE, screenSize * DIST_MAX_SHARE, distance);
+      const linkShare = (readControl(linksInput, 0) / 100) * LINK_MAX_SHARE;
+      const glow = readControl(glowInput, 45) / 100;
+
+      updatePresence(readControl(presenceInput, 0) / 100);
+      updateSun();
+      drawSun();
+      updatePlanet();
+      drawPlanet();
+      updatePlanet2();
+      drawPlanet2();
+      updateField(elapsed);
+      activePoints.length = 0;
+
+      for (const piece of pieces) {
+        updateWordPoints(piece, progress, elapsed, density, speedMul, vortex, sphere, maxSpread, cohesion);
+      }
+
+      resolveCollisions();
+      if (linkShare > 0) drawLinks(linkShare);
+      drawDots(glow, trail);
+      drawPresenceBadge();
+      updateControlValueDisplays();
+    }
+
+    // Буква «А» весь этот путь плавно становится прозрачной, а исходящее из
+    // неё радужное свечение растёт, пока не заполнит собой весь холст, и
+    // одновременно растворяется до полной прозрачности — без единого
+    // резкого перехода. Именно из этого свечения «рождаются» точки слов
+    // (см. progress в draw()). Возвращает 0..1 — общий прогресс растворения
+    // и рождения точек.
+    function drawIntro(elapsed) {
+      const t = constrain(elapsed / INTRO_MS, 0, 1);
+      const eased = t * t * (3 - 2 * t);
+
+      // Буква «А» тает вдвое быстрее общего минутного хода — рождение точек
+      // по-прежнему идёт за eased/минуту, а вот собственная прозрачность
+      // буквы считается по своему, ускоренному ходу wordEased: она
+      // растворяется первой, «в тигле» (сам тигл остаётся под ней и растёт).
+      // И буква, и свечение на самом старте уже на 15% прозрачны (85% альфы),
+      // а не полностью непрозрачны — общий множитель INTRO_START_ALPHA.
+      const wordT = constrain(t * WORD_DISSOLVE_SPEEDUP, 0, 1);
+      const wordEased = wordT * wordT * (3 - 2 * wordT);
+      const wordAlpha = 255 * INTRO_START_ALPHA * (1 - wordEased);
+
+      const cx = width / 2;
+      const cy = height / 2;
+      const glyphSize = INTRO_GLOW_BASE * 2; // буква — неизменного размера, как раньше было неизменным introFontSize
+
+      // Свечение растворяется из буквы «А» во все стороны и заполняет собой
+      // всё пространство холста: радиус растёт не до фиксированной отметки,
+      // а до самого дальнего угла экрана, — и одновременно, тем же плавным
+      // ходом eased, тает до полной прозрачности. Никакого резкого
+      // исчезновения на t=1 — оба хода (рост и растворение) непрерывны и
+      // синхронны, свечение само гаснет раньше, чем перестаёт расти.
+      const glowMaxRadius = Math.hypot(width, height) / 2 + INTRO_GLOW_BASE;
+      const glowRadius = lerp(INTRO_GLOW_BASE, glowMaxRadius, eased);
+      const glowAlphaMul = INTRO_START_ALPHA * (1 - eased);
+
+      if (glowAlphaMul > 0.002) {
+        const context = drawingContext;
+        const halo = context.createRadialGradient(cx, cy, 0, cx, cy, glowRadius);
+        const stops = GLOW_COLORS.length - 1;
+        for (let i = 0; i < GLOW_COLORS.length; i++) {
+          const c = color(GLOW_COLORS[i]);
+          const stopAlpha = i === GLOW_COLORS.length - 1 ? 0 : glowAlphaMul; // край свечения — всегда прозрачный, не плашка цвета фона
+          halo.addColorStop(i / stops, `rgba(${red(c)}, ${green(c)}, ${blue2(c)}, ${stopAlpha})`);
+        }
+        noStroke();
+        context.fillStyle = halo;
+        context.beginPath();
+        context.arc(cx, cy, glowRadius, 0, TWO_PI);
+        context.fill();
+      }
+
+      if (wordAlpha > 0.5 && introGlyphLayer) {
+        push();
+        imageMode(CENTER);
+        tint(255, wordAlpha);
+        image(introGlyphLayer, cx, cy, glyphSize, glyphSize);
+        pop();
+      }
+
+      return eased;
+    }
+
+    function readControl(input, fallback) {
+      const value = input ? Number(input.value) : fallback;
+      return Number.isFinite(value) ? value : fallback;
+    }
+
+    // Рядом с каждым ползунком — его текущее значение в цифрах, живьём.
+    function updateControlValueDisplays() {
+      const ranges = document.querySelectorAll('#controls input[type="range"]');
+      ranges.forEach(input => {
+        const span = input.nextElementSibling;
+        if (!span || !span.classList.contains('control-value')) return;
+        const suffix = span.dataset.suffix || '';
+        span.textContent = Math.round(Number(input.value)) + suffix;
+      });
+    }
+    // Микрофон включает и выключает кнопка (presenceEnabled), а не ползунок —
+    // ползунок «чувствительность» лишь настраивает порог, пока микрофон
+    // включён: на малой раскачку даёт только громкий звук, на полной хватает
+    // тихого шороха. Нарастает раскачка быстро, спадает медленнее — как у
+    // обычного индикатора громкости, чтобы взмах не дёргался.
+    function updatePresence(sensitivity) {
+      const now = millis();
+      const dt = presenceAt ? Math.min(0.1, (now - presenceAt) / 1000) : 1 / 30;
+      presenceAt = now;
+      if (!presenceEnabled) {
+        stopMic();
+        soundLevel = 0;
+        for (const z in zones) zones[z] = 0;
+        presenceDrive = Math.max(0, presenceDrive - dt * 1.2);
+        updatePresenceToggleUI();
+        return;
+      }
+      ensureMic();
+      let energy = 0;
+      if (micReady && analyser && micData) {
+        analyser.getByteTimeDomainData(micData);
+        let sumSquares = 0;
+        for (let i = 0; i < micData.length; i++) {
+          const v = (micData[i] - 128) / 128;
+          sumSquares += v * v;
+        }
+        const rms = Math.sqrt(sumSquares / micData.length);
+        energy = constrain(rms * 7, 0, 1);
+      }
+      soundLevel = lerp(soundLevel, energy, 0.35);
+      zones.head = lerp(zones.head, soundLevel, 0.45);
+      zones.torso = lerp(zones.torso, soundLevel, 0.3);
+      zones.left = lerp(zones.left, soundLevel, 0.22);
+      zones.right = lerp(zones.right, soundLevel, 0.18);
+      const threshold = 0.5 * (1 - sensitivity) + 0.015;
+      const drive = soundLevel >= threshold
+        ? (soundLevel - threshold) / Math.max(0.05, 1 - threshold)
+        : 0;
+      const rate = drive > presenceDrive ? 3.2 + 3.5 * sensitivity : 1.4;
+      presenceDrive += (drive - presenceDrive) * Math.min(1, rate * dt);
+      presenceDrive = constrain(presenceDrive, 0, 1);
+      updatePresenceToggleUI();
+    }
+
+    // Точка вращения неподвижна и стоит ровно в центре холста — вокруг неё
+    // вращается всё остальное. В отличие от планеты, на нуле ползунка у неё
+    // нет массы вовсе: это честный ноль, а не лунная масса по умолчанию.
+    function updateSun() {
+      const t = readControl(sunAttractionInput, 0) / 100;
+      sunMassRatio = t * (SUN_MASS_KG / MOON_MASS_KG);
+      sunRadiusPx = lerp(SUN_RADIUS_MIN, SUN_RADIUS_MAX, t);
+    }
+
+    // Белое раскалённое ядро в тёплом оранжевом ореоле — тот же приём
+    // радиального градиента, что и у обычных точек, но с запасом ярче и
+    // крупнее: это самый яркий объект на сцене.
+    function drawSun() {
+      const context = drawingContext;
+      const sx = width / 2;
+      const sy = height / 2;
+      const c = color(PALETTE.orange);
+      const r = red(c);
+      const g = green(c);
+      const b = blue2(c);
+      const haloRadius = sunRadiusPx * 6;
+      const halo = context.createRadialGradient(sx, sy, 0, sx, sy, haloRadius);
+      halo.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.75)`);
+      halo.addColorStop(0.25, `rgba(${r}, ${g}, ${b}, 0.32)`);
+      halo.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+      noStroke();
+      context.fillStyle = halo;
+      context.beginPath();
+      context.arc(sx, sy, haloRadius, 0, TWO_PI);
+      context.fill();
+      fill(PALETTE.light);
+      circle(sx, sy, sunRadiusPx * 2);
+    }
+
+    // Планета движется по своей орбите независимо от присутствия и звука —
+    // ползунки блока «планета» задают массу (сила притяжения), скорость
+    // вращения и расстояние орбиты. На нуле всех трёх — это условная Луна:
+    // её масса, её скорость и её расстояние, просто уменьшенные до масштаба
+    // холста, а не выключенное состояние.
+    function updatePlanet() {
+      const now = millis();
+      const dt = planetAt ? Math.min(0.1, (now - planetAt) / 1000) : 1 / 30;
+      planetAt = now;
+
+      const massT = readControl(planetMassInput, 0) / 100;
+      const speedT = readControl(planetSpeedInput, 0) / 100;
+      const distT = readControl(planetDistanceInput, 0) / 100;
+
+      planetMassRatio = Math.pow(SATURN_MASS_KG / MOON_MASS_KG, massT) * 5;
+      planetDistanceRatio = lerp(1, 100, distT);
+
+      const speedMultiplier = lerp(1, 100, speedT);
+      const angularSpeed = (TWO_PI / MOON_ORBIT_PERIOD_S) * speedMultiplier;
+      planetAngle += angularSpeed * dt;
+
+      const rx = lerp(PLANET_ORBIT_RX, PLANET_ORBIT_RX * PLANET_ORBIT_GROWTH, distT);
+      const ry = lerp(PLANET_ORBIT_RY, PLANET_ORBIT_RY * PLANET_ORBIT_GROWTH, distT);
+      planetX = width / 2 + Math.cos(planetAngle) * rx;
+      planetY = height / 2 + Math.sin(planetAngle) * ry;
+      planetRadiusPx = lerp(PLANET_RADIUS_MIN, PLANET_RADIUS_MAX, Math.sqrt(massT));
+      // Орбита наклонена по глубине — на притяжение точек это не влияет
+      // (оно по-прежнему считается в исходной плоскости), но на экране тело
+      // то выходит вперёд, то уходит вглубь.
+      planetDepthZ = Math.sin(planetAngle) * PLANET_DEPTH_TILT;
+      planetScale = DEPTH_FOCAL / (DEPTH_FOCAL + planetDepthZ);
+    }
+
+    // Тело снова синее — светится тем же приёмом, что обычные точки
+    // (радиальный градиент поверх ядра), крупнее и в голубом — отдельный,
+    // узнаваемый акцент от оранжевого солнца, звука и белёсых слов.
+    function drawPlanet() {
+      const context = drawingContext;
+      const c = color(PALETTE.blue);
+      const r = red(c);
+      const g = green(c);
+      const b = blue2(c);
+      // Проекция глубины: планета рисуется не в planetX/planetY, а в точке,
+      // растянутой от центра сцены на её масштаб глубины — так наклон орбиты
+      // становится виден (тело крупнее, когда выходит вперёд, мельче — когда
+      // уходит вглубь).
+      const sx = width / 2 + (planetX - width / 2) * planetScale;
+      const sy = height / 2 + (planetY - height / 2) * planetScale;
+      const radiusPx = planetRadiusPx * planetScale;
+      const haloRadius = radiusPx * 3.4;
+      const halo = context.createRadialGradient(
+        sx, sy, 0,
+        sx, sy, haloRadius
+      );
+      halo.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.55)`);
+      halo.addColorStop(0.35, `rgba(${r}, ${g}, ${b}, 0.22)`);
+      halo.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+      noStroke();
+      context.fillStyle = halo;
+      context.beginPath();
+      context.arc(sx, sy, haloRadius, 0, TWO_PI);
+      context.fill();
+      fill(c);
+      circle(sx, sy, radiusPx * 2);
+    }
+
+    // Красная планета живёт по тем же правилам, что и синяя (свой блок
+    // контролов, та же логика массы, скорости и орбиты), только центр
+    // орбиты дальше — см. PLANET2_ORBIT_RX/RY.
+    function updatePlanet2() {
+      const now = millis();
+      const dt = planet2At ? Math.min(0.1, (now - planet2At) / 1000) : 1 / 30;
+      planet2At = now;
+
+      const massT = readControl(planet2MassInput, 0) / 100;
+      const speedT = readControl(planet2SpeedInput, 0) / 100;
+      const distT = readControl(planet2DistanceInput, 0) / 100;
+
+      planet2MassRatio = Math.pow(SATURN_MASS_KG / MOON_MASS_KG, massT) * 5;
+      planet2DistanceRatio = lerp(1, 100, distT);
+
+      const speedMultiplier = lerp(1, 100, speedT);
+      const angularSpeed = (TWO_PI / MOON_ORBIT_PERIOD_S) * speedMultiplier;
+      planet2Angle += angularSpeed * dt;
+
+      const rx = lerp(PLANET2_ORBIT_RX, PLANET2_ORBIT_RX * PLANET_ORBIT_GROWTH, distT);
+      const ry = lerp(PLANET2_ORBIT_RY, PLANET2_ORBIT_RY * PLANET_ORBIT_GROWTH, distT);
+      planet2X = width / 2 + Math.cos(planet2Angle) * rx;
+      planet2Y = height / 2 + Math.sin(planet2Angle) * ry;
+      planet2RadiusPx = lerp(PLANET_RADIUS_MIN, PLANET_RADIUS_MAX, Math.sqrt(massT));
+      // Своя фаза наклона — чтобы красная планета не ныряла в глубину
+      // синхронно с синей.
+      planet2DepthZ = Math.sin(planet2Angle + Math.PI / 3) * PLANET2_DEPTH_TILT;
+      planet2Scale = DEPTH_FOCAL / (DEPTH_FOCAL + planet2DepthZ);
+    }
+
+    // Красный — как раньше чёрный у синей планеты, сознательное исключение
+    // из палитры по прямой просьбе (в палитре нет чистого красного).
+    function drawPlanet2() {
+      const context = drawingContext;
+      const c = color('#ff4438');
+      const r = red(c);
+      const g = green(c);
+      const b = blue2(c);
+      const sx = width / 2 + (planet2X - width / 2) * planet2Scale;
+      const sy = height / 2 + (planet2Y - height / 2) * planet2Scale;
+      const radiusPx = planet2RadiusPx * planet2Scale;
+      const haloRadius = radiusPx * 3.4;
+      const halo = context.createRadialGradient(
+        sx, sy, 0,
+        sx, sy, haloRadius
+      );
+      halo.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.55)`);
+      halo.addColorStop(0.35, `rgba(${r}, ${g}, ${b}, 0.22)`);
+      halo.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+      noStroke();
+      context.fillStyle = halo;
+      context.beginPath();
+      context.arc(sx, sy, haloRadius, 0, TWO_PI);
+      context.fill();
+      fill(c);
+      circle(sx, sy, radiusPx * 2);
+    }
+
+    // Просит доступ к микрофону один раз и держит его, пока кнопка
+    // «микрофон» включена. Поток идёт только в анализатор, не на выход
+    // звука — иначе микрофон подхватил бы колокольчики и завыл эхом.
+    function ensureMic() {
+      if (micStream || micRequesting) return;
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+      micRequesting = true;
+      navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+        .then(stream => {
+          micRequesting = false;
+          if (!presenceEnabled) {
+            stream.getTracks().forEach(track => track.stop());
+            return;
+          }
+          if (!audioCtx) {
+            const Ctx = window.AudioContext || window.webkitAudioContext;
+            audioCtx = Ctx ? new Ctx() : null;
+          }
+          if (!audioCtx) {
+            stream.getTracks().forEach(track => track.stop());
+            return;
+          }
+          micStream = stream;
+          micSource = audioCtx.createMediaStreamSource(stream);
+          analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 1024;
+          micData = new Uint8Array(analyser.fftSize);
+          micSource.connect(analyser);
+          micReady = true;
+        })
+        .catch(() => {
+          micRequesting = false;
+          micReady = false;
+        });
+    }
+
+    // Снимает микрофон целиком: останавливает дорожку потока и отключает
+    // узлы анализа — на нуле ползунка доступа к микрофону не остаётся вовсе.
+    function stopMic() {
+      if (micStream) micStream.getTracks().forEach(track => track.stop());
+      if (micSource) micSource.disconnect();
+      if (analyser) analyser.disconnect();
+      micStream = null;
+      micSource = null;
+      analyser = null;
+      micData = null;
+      micReady = false;
+    }
+
+    // Поле скорости: вихревое (curl) поле от шума. Оно не сжимает и не
+    // разрежает точки, поэтому масса остается ровной и не сбивается в струи.
+    function buildField() {
+      const cols = Math.ceil(width / FIELD_CELL) + 1;
+      const rows = Math.ceil(height / FIELD_CELL) + 1;
+      field = {
+        cols,
+        rows,
+        phi: new Float32Array(cols * rows),
+        vx: new Float32Array(cols * rows),
+        vy: new Float32Array(cols * rows),
+        region: new Float32Array(cols * rows)
+      };
+    }
+
+    // Рождает звёздное поле: у каждой звезды своя точка в объёме перед
+    // камерой, разбросанная по всей дальней границе — чтобы с первого кадра
+    // сцена уже была полна звёзд, а не заполнялась ими постепенно.
+    function buildStars() {
+      stars = [];
+      for (let i = 0; i < STAR_COUNT; i++) {
+        const star = {
+          x: random(-STAR_FIELD_SPREAD, STAR_FIELD_SPREAD),
+          y: random(-STAR_FIELD_SPREAD, STAR_FIELD_SPREAD),
+          z: random(STAR_NEAR_Z, STAR_FAR_Z),
+          speedMul: random(STAR_SPEED_MUL_MIN, STAR_SPEED_MUL_MAX),
+          prevSx: 0,
+          prevSy: 0
+        };
+        const scale = DEPTH_FOCAL / (DEPTH_FOCAL + star.z);
+        star.prevSx = width / 2 + star.x * scale;
+        star.prevSy = height / 2 + star.y * scale;
+        stars.push(star);
+      }
+    }
+
+    // Каждый кадр запоминаем экранное положение звезды до движения (это
+    // будет начало отрезка-«скорости»), затем приближаем её на скорость
+    // полёта. Пролетевшую мимо камеры звезду пересеваем на дальнюю границу
+    // со свежими x/y — поле остаётся бесконечным и никогда не редеет.
+    function updateStars() {
+      const now = millis();
+      const dt = starsAt ? Math.min(0.1, (now - starsAt) / 1000) : 1 / 30;
+      starsAt = now;
+      // «Скорость звёзд»: на 0 — нынешняя скорость полёта, на 100 — в 10 раз
+      // быстрее. Чем быстрее звезда идёт на камеру, тем сильнее меняется её
+      // проекция за кадр — отрезок в drawStars() сам вытягивается в линию
+      // соответственно скорости, без отдельной логики «переключения».
+      const starSpeedT = readControl(starSpeedInput, 0) / 100;
+      // «Движение вперёд»: отдельный от «скорости звёзд» множитель — на 0
+      // ничего не меняет (нынешняя скорость), на 100 — она вдвое быстрее.
+      const forwardMul = lerp(1, 2, readControl(starForwardInput, 0) / 100);
+      const flightSpeed = STAR_FLIGHT_SPEED * lerp(1, 10, starSpeedT) * forwardMul;
+      // «Вращение звёзд»: ось этого вращения — сам вектор движения
+      // центральной точки (направление полёта), поэтому поле не смещается,
+      // а медленно проворачивается вокруг него. На 0 вращения нет вовсе.
+      const spinSpeed = STAR_SPIN_MAX_SPEED * (readControl(starSpinInput, 0) / 100);
+      const cosOld = Math.cos(starSpinAngle);
+      const sinOld = Math.sin(starSpinAngle);
+      starSpinAngle += spinSpeed * dt;
+      const cosNew = Math.cos(starSpinAngle);
+      const sinNew = Math.sin(starSpinAngle);
+      for (const star of stars) {
+        const scale = DEPTH_FOCAL / (DEPTH_FOCAL + star.z);
+        const rx = star.x * cosOld - star.y * sinOld;
+        const ry = star.x * sinOld + star.y * cosOld;
+        star.prevSx = width / 2 + rx * scale;
+        star.prevSy = height / 2 + ry * scale;
+        star.z -= flightSpeed * star.speedMul * dt;
+        if (star.z <= STAR_NEAR_Z) {
+          star.x = random(-STAR_FIELD_SPREAD, STAR_FIELD_SPREAD);
+          star.y = random(-STAR_FIELD_SPREAD, STAR_FIELD_SPREAD);
+          star.z = random(STAR_FAR_Z * 0.75, STAR_FAR_Z);
+          star.speedMul = random(STAR_SPEED_MUL_MIN, STAR_SPEED_MUL_MAX);
+          const freshScale = DEPTH_FOCAL / (DEPTH_FOCAL + star.z);
+          const frx = star.x * cosNew - star.y * sinNew;
+          const fry = star.x * sinNew + star.y * cosNew;
+          star.prevSx = width / 2 + frx * freshScale;
+          star.prevSy = height / 2 + fry * freshScale;
+        }
+      }
+    }
+
+    // Рисуется звезда не точкой, а отрезком от прошлого экранного положения
+    // к нынешнему: у дальних звёзд это положение почти не меняется за кадр,
+    // и отрезок читается как едва заметная точка, а у ближних меняется
+    // сильно — отрезок вытягивается в линию, само собой отражая скорость
+    // полёта сквозь пространство.
+    // Рисует один отрезок звёздного хвоста с градиентом вдоль длины —
+    // прозрачный на дальнем конце, полного цвета и alpha у головы. Общий
+    // помощник для тени/полутона/блика в drawStars() — три параллельных
+    // отрезка вместе и дают объём (см. ниже).
+    function drawStarSegment(context, x1, y1, x2, y2, r, g, b, alpha, lineWidth) {
+      const gradient = context.createLinearGradient(x1, y1, x2, y2);
+      gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0)`);
+      gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, ${alpha})`);
+      context.strokeStyle = gradient;
+      context.lineWidth = lineWidth;
+      context.lineCap = 'round';
+      context.beginPath();
+      context.moveTo(x1, y1);
+      context.lineTo(x2, y2);
+      context.stroke();
+    }
+
+    function drawStars() {
+      const context = drawingContext;
+      const base = color(PALETTE.muted);
+      const bright = color(PALETTE.light);
+      // «Контраст звёзд»: на 0 — нынешняя разница размера и яркости между
+      // дальними и ближними звёздами, на 100 — вдвое больше. Меняется только
+      // сама разница (множитель ниже), базовая величина дальних звёзд
+      // отсчитывается отдельно, от «яркости звёзд».
+      const contrastMul = lerp(1, 2, readControl(starContrastInput, 0) / 100);
+      // «Яркость звёзд» задаёт яркость самой тусклой, дальней звезды — на 0
+      // это нынешнее значение (36), на 100 — полная яркость (255). Все
+      // остальные звёзды светлее её на ту же разницу, что и раньше, то есть
+      // считаются относительно этой базы, а не заново с нуля.
+      const dimAlpha = lerp(36, 255, readControl(starBrightnessInput, 0) / 100);
+      const cosA = Math.cos(starSpinAngle);
+      const sinA = Math.sin(starSpinAngle);
+      // «Скорость звёзд», вторая часть эффекта: хвост звезды тянется не
+      // только от её собственного смещения за кадр, но и подтягивается к
+      // центру экрана — на 0 это нынешнее (уже удлинённое STAR_TAIL_STRETCH)
+      // смещение, на 100% хвост дотягивается до самого центра, и все звёзды
+      // сливаются в сплошные прямые линии.
+      const tailShare = readControl(starSpeedInput, 0) / 100;
+      for (const star of stars) {
+        const scale = DEPTH_FOCAL / (DEPTH_FOCAL + star.z);
+        const rx = star.x * cosA - star.y * sinA;
+        const ry = star.x * sinA + star.y * cosA;
+        const sx = width / 2 + rx * scale;
+        const sy = height / 2 + ry * scale;
+        // Хвост длиннее прежнего: не голое смещение за кадр, а оно же,
+        // растянутое в STAR_TAIL_STRETCH раз от текущего положения звезды.
+        const stretchedTailX = sx + (star.prevSx - sx) * STAR_TAIL_STRETCH;
+        const stretchedTailY = sy + (star.prevSy - sy) * STAR_TAIL_STRETCH;
+        const tailX = lerp(stretchedTailX, width / 2, tailShare);
+        const tailY = lerp(stretchedTailY, height / 2, tailShare);
+        const depthT = constrain(1 - star.z / STAR_FAR_Z, 0, 1);
+        const c = lerpColor(base, bright, depthT);
+        const alpha = Math.min(255, dimAlpha + depthT * 190 * contrastMul);
+        const r = red(c);
+        const g = green(c);
+        const b = blue2(c);
+        // Толщина линии — не только от контраста дальше/ближе, а прямо от
+        // перспективного масштаба звезды (scale): по мере приближения линия
+        // расширяется в трёхмерном пространстве, как и положено объекту,
+        // а не остаётся плоской чертой одной ширины.
+        const lineWidth = (0.6 + depthT * 1.4 * contrastMul) * scale * 1.5;
+        // Объём: вместо одной линии — три параллельных отрезка, сдвинутых
+        // поперёк движения звезды. Тень с одной стороны, блик с другой,
+        // между ними — основной тон; вместе читается как круглое сечение,
+        // освещённое с одного бока, а не плоская черта.
+        const dx = sx - tailX;
+        const dy = sy - tailY;
+        const segLen = Math.hypot(dx, dy) || 1;
+        const nx = -dy / segLen;
+        const ny = dx / segLen;
+        const shadeOffset = lineWidth * 0.55;
+        const shadowColor = lerpColor(c, color(PALETTE.background), 0.6);
+        const highlightColor = lerpColor(c, color(PALETTE.light), 0.65);
+        drawStarSegment(
+          context,
+          tailX - nx * shadeOffset, tailY - ny * shadeOffset,
+          sx - nx * shadeOffset, sy - ny * shadeOffset,
+          red(shadowColor), green(shadowColor), blue2(shadowColor),
+          (alpha / 255) * 0.7, lineWidth * 0.75
+        );
+        drawStarSegment(context, tailX, tailY, sx, sy, r, g, b, alpha / 255, lineWidth);
+        drawStarSegment(
+          context,
+          tailX + nx * shadeOffset, tailY + ny * shadeOffset,
+          sx + nx * shadeOffset, sy + ny * shadeOffset,
+          red(highlightColor), green(highlightColor), blue2(highlightColor),
+          (alpha / 255) * 0.6, lineWidth * 0.5
+        );
+      }
+      noStroke();
+    }
+
+    function updateField(elapsed) {
+      const t = elapsed * 0.00005;
+      const { cols, rows, phi, vx, vy, region } = field;
+
+      for (let j = 0; j < rows; j++) {
+        for (let i = 0; i < cols; i++) {
+          phi[i + j * cols] = noise(i * FIELD_WAVE, j * FIELD_WAVE, t);
+          region[i + j * cols] = noise(i * FIELD_WAVE * 0.6 + 300, j * FIELD_WAVE * 0.6 + 300, t * 0.6);
+        }
+      }
+
+      let regionMin = 1;
+      let regionMax = 0;
+      for (let k = 0; k < cols * rows; k++) {
+        if (region[k] < regionMin) regionMin = region[k];
+        if (region[k] > regionMax) regionMax = region[k];
+      }
+      const regionSpan = Math.max(regionMax - regionMin, 0.0001);
+      for (let k = 0; k < cols * rows; k++) {
+        region[k] = (region[k] - regionMin) / regionSpan;
+      }
+
+      let maxMag = 0.0001;
+      for (let j = 0; j < rows; j++) {
+        const jm = Math.max(j - 1, 0);
+        const jp = Math.min(j + 1, rows - 1);
+        for (let i = 0; i < cols; i++) {
+          const im = Math.max(i - 1, 0);
+          const ip = Math.min(i + 1, cols - 1);
+          const dx = phi[ip + j * cols] - phi[im + j * cols];
+          const dy = phi[i + jp * cols] - phi[i + jm * cols];
+          const k = i + j * cols;
+          vx[k] = dy;
+          vy[k] = -dx;
+          const mag = Math.hypot(dy, dx);
+          if (mag > maxMag) maxMag = mag;
+        }
+      }
+
+      const targetGain = MAX_SPEED / maxMag;
+      fieldGain = fieldGain === 0 ? targetGain : lerp(fieldGain, targetGain, 0.03);
+    }
+
+    function sampleField(x, y, out) {
+      const { cols, rows, vx, vy, region } = field;
+      const fx = constrain(x / FIELD_CELL, 0, cols - 1.001);
+      const fy = constrain(y / FIELD_CELL, 0, rows - 1.001);
+      const i = Math.floor(fx);
+      const j = Math.floor(fy);
+      const u = fx - i;
+      const v = fy - j;
+      const k00 = i + j * cols;
+      const k10 = k00 + 1;
+      const k01 = k00 + cols;
+      const k11 = k01 + 1;
+      const w00 = (1 - u) * (1 - v);
+      const w10 = u * (1 - v);
+      const w01 = (1 - u) * v;
+      const w11 = u * v;
+      out.vx = (vx[k00] * w00 + vx[k10] * w10 + vx[k01] * w01 + vx[k11] * w11) * fieldGain;
+      out.vy = (vy[k00] * w00 + vy[k10] * w10 + vy[k01] * w01 + vy[k11] * w11) * fieldGain;
+      out.region = region[k00] * w00 + region[k10] * w10 + region[k01] * w01 + region[k11] * w11;
+    }
+
+    function drawSolidWord(piece, visibility) {
+      if (visibility <= 0) return;
+      push();
+      textSize(piece.fontSize);
+      textStyle(NORMAL);
+      textAlign(CENTER, CENTER);
+      const c = color(PALETTE[piece.colorName]);
+      c.setAlpha(235 * visibility);
+      fill(c);
+      text(piece.label, piece.cx, piece.cy - 1);
+      pop();
+    }
+
+    const fieldSample = { vx: 0, vy: 0, region: 0 };
+    const blue2 = c => blue(c);
+
+    // Через SHATTER_AT_MS после загрузки все слова разом «раскалываются»:
+    // расписание крошения каждого слова переигрывается так, будто оно
+    // стартует прямо сейчас (вместо своей обычной, гораздо более поздней
+    // и растянутой очереди), а каждая точка получает собственную, сеяную
+    // случайную цель на экране и короткий резкий рывок к ней — россыпь
+    // осколков, а не плавный дрейф.
+    function triggerShatter(elapsed) {
+      for (const piece of pieces) {
+        piece.delay = elapsed - HOLD_MS;
+        for (const point of piece.points) {
+          const homeX = piece.cx + point.x;
+          const homeY = piece.cy + point.y;
+          point.px = homeX;
+          point.py = homeY;
+          point.shatterFromX = homeX;
+          point.shatterFromY = homeY;
+          const angle = random(TWO_PI);
+          const dist = random(SHATTER_MIN_DIST, SHATTER_MAX_DIST);
+          point.shatterToX = constrain(homeX + Math.cos(angle) * dist, 12, width - 12);
+          point.shatterToY = constrain(homeY + Math.sin(angle) * dist, 12, height - 12);
+          point.shatterStart = elapsed + point.reveal * 0.42 * CRUMBLE_MS;
+          point.shattering = true;
+        }
+      }
+    }
+
+    // Считает новое положение и цвет каждой точки слова. Рисование - отдельно,
+    // чтобы линии легли под точками, а не поверх них.
+    function updateWordPoints(piece, progress, elapsed, density, speedMul, vortex, sphere, maxSpread, cohesion) {
+      if (progress <= 0) return;
+      const breathTime = elapsed * 0.00115;
+      // Движение включается по тому же прогрессу, что и рождение точек из
+      // света слова «любовь» (см. progress в draw()) — точки одновременно
+      // проявляются и понемногу оживают, без отдельной постфазы.
+      const flow = progress * progress * (3 - 2 * progress);
+
+      // Проход 1: двигаем точки слова и собираем тех, что сейчас видны —
+      // по ним построим центр их собственного, а не изначального, облака.
+      liveScratch.length = 0;
+      for (const point of piece.points) {
+        if (point.densityRank > density) continue;
+
+        const local = constrain((progress - point.reveal * 0.42) / 0.58, 0, 1);
+        if (local <= 0) continue;
+
+        if (flow > 0) {
+          sampleField(point.px, point.py, fieldSample);
+          let targetVx = fieldSample.vx;
+          let targetVy = fieldSample.vy;
+          if (vortex > 0) {
+            // Широкая горизонтальная восьмёрка с мягким переходом из облака.
+            if (point.orbitPhase === undefined) point.orbitPhase = point.phase;
+            const radiusX = 440 + (point.tone - 0.5) * 90;
+            const radiusY = 220 + (point.densityRank - 0.5) * 60;
+            const theta = point.orbitPhase;
+            const tangentX = radiusX * Math.cos(theta);
+            const tangentY = 2 * radiusY * Math.cos(2 * theta);
+            const angularSpeed = 0.9 / Math.max(1, Math.hypot(tangentX, tangentY));
+            const targetX = width / 2 + radiusX * Math.sin(theta);
+            const targetY = height / 2 + radiusY * Math.sin(2 * theta);
+            const orbitVx = tangentX * angularSpeed + (targetX - point.px) * 0.018;
+            const orbitVy = tangentY * angularSpeed + (targetY - point.py) * 0.018;
+            targetVx = lerp(targetVx, orbitVx, vortex);
+            targetVy = lerp(targetVy, orbitVy, vortex);
+            point.orbitPhase += angularSpeed * flow * speedMul * vortex;
+          }
+          if (sphere > 0) {
+            // «Сфера»: точка вращается вокруг центральной точки по
+            // поверхности сферы — азимут (theta) и полюс (phi), у каждой
+            // точки свой стартовый угол и свой личный темп смены полюса
+            // (spherePhiRate), поэтому сфера не плоское кольцо и не дышит
+            // глубиной синхронно всем облаком разом (иначе это читалось бы
+            // как пульсация яркости — масштаб глубины напрямую влияет на
+            // размер и свечение точки, см. drawDots()). Диаметр —
+            // sphereRadiusPx, задаётся ползунком «сфера» (см. draw()).
+            if (point.sphereTheta === undefined) point.sphereTheta = point.phase;
+            if (point.spherePhi === undefined) point.spherePhi = point.tone * Math.PI * 2;
+            if (point.spherePhiRate === undefined) point.spherePhiRate = random(SPHERE_PHI_RATE_MIN, SPHERE_PHI_RATE_MAX);
+            const theta = point.sphereTheta;
+            const phi = point.spherePhi;
+            const sinPhi = Math.sin(phi);
+            const sphereX = sphereRadiusPx * sinPhi * Math.cos(theta);
+            const sphereY = sphereRadiusPx * sinPhi * Math.sin(theta);
+            const tangentSphereX = -sphereRadiusPx * sinPhi * Math.sin(theta);
+            const tangentSphereY = sphereRadiusPx * sinPhi * Math.cos(theta);
+            const targetSphereX = width / 2 + sphereX;
+            const targetSphereY = height / 2 + sphereY;
+            const sphereOrbitVx = tangentSphereX * SPHERE_ANGULAR_SPEED + (targetSphereX - point.px) * 0.02;
+            const sphereOrbitVy = tangentSphereY * SPHERE_ANGULAR_SPEED + (targetSphereY - point.py) * 0.02;
+            targetVx = lerp(targetVx, sphereOrbitVx, sphere);
+            targetVy = lerp(targetVy, sphereOrbitVy, sphere);
+            point.sphereTheta += SPHERE_ANGULAR_SPEED * flow * speedMul * sphere;
+            point.spherePhi += SPHERE_PHI_SPEED * point.spherePhiRate * flow * speedMul * sphere;
+            point.sphereDepth = sphereRadiusPx * Math.cos(phi);
+            point.sphereRadiusXY = sphereRadiusPx * sinPhi;
+          }
+          if (cohesion > 0) {
+            // Связность стягивает точки слова к месту, где оно стояло на
+            // экране: тяга растёт с расстоянием, но не сильнее потолка, а
+            // сила прямо пропорциональна ползунку — 0% это отсутствие тяги,
+            // 100% — её полная, ничем не срезанная величина.
+            const dxHome = piece.cx - point.px;
+            const dyHome = piece.cy - point.py;
+            const distHome = Math.hypot(dxHome, dyHome);
+            if (distHome > 1) {
+              const pullMag = Math.min(distHome * COHESION_RATE, COHESION_MAX_PULL) * cohesion;
+              targetVx += (dxHome / distHome) * pullMag;
+              targetVy += (dyHome / distHome) * pullMag;
+            }
+          }
+          point.vx = lerp(point.vx, targetVx * flow * speedMul, 0.08);
+          point.vy = lerp(point.vy, targetVy * flow * speedMul, 0.08);
+          if (vortex > 0 || sphere > 0) {
+            const limit = Math.min(1, 2.7 / Math.max(0.001, Math.hypot(point.vx, point.vy)));
+            point.vx *= limit;
+            point.vy *= limit;
+          }
+          point.px += point.vx;
+          point.py += point.vy;
+          if (presenceDrive > 0) {
+            // Звук раскачивает точку по её собственной фазе (point.phase),
+            // поэтому общий гул микрофона превращается в россыпь разных
+            // траекторий, а не в один общий рывок. Громче звук — шире взмах.
+            const swing = presenceDrive * PRESENCE_OSC_AMP;
+            const t = elapsed * PRESENCE_OSC_SPEED + point.phase;
+            point.px += Math.cos(t) * swing;
+            point.py += Math.sin(t * 1.3 + point.phase) * swing;
+          }
+          // Притяжение планеты: сила растёт с её массой, падает с квадратом
+          // абстрактного расстояния орбиты (ползунок «расстояние») и ещё раз —
+          // с квадратом настоящего, экранного расстояния до точки. Рядом с
+          // телом сила смягчена (PLANET_SOFTEN), на удалении — гаснет сама.
+          {
+            const pdx = planetX - point.px;
+            const pdy = planetY - point.py;
+            const pDistSq = pdx * pdx + pdy * pdy + PLANET_SOFTEN * PLANET_SOFTEN;
+            const pDist = Math.sqrt(pDistSq);
+            const pullMag = Math.min(
+              (PLANET_PULL_BASE * planetMassRatio) /
+                (planetDistanceRatio * planetDistanceRatio) /
+                pDistSq,
+              PLANET_PULL_MAX
+            );
+            point.px += (pdx / pDist) * pullMag;
+            point.py += (pdy / pDist) * pullMag;
+          }
+          // Притяжение красной планеты — та же формула, что у синей, свой
+          // центр и своя масса.
+          {
+            const p2dx = planet2X - point.px;
+            const p2dy = planet2Y - point.py;
+            const p2DistSq = p2dx * p2dx + p2dy * p2dy + PLANET_SOFTEN * PLANET_SOFTEN;
+            const p2Dist = Math.sqrt(p2DistSq);
+            const p2PullMag = Math.min(
+              (PLANET_PULL_BASE * planet2MassRatio) /
+                (planet2DistanceRatio * planet2DistanceRatio) /
+                p2DistSq,
+              PLANET_PULL_MAX
+            );
+            point.px += (p2dx / p2Dist) * p2PullMag;
+            point.py += (p2dy / p2Dist) * p2PullMag;
+          }
+          // Притяжение точки вращения — неподвижного «солнца» в центре
+          // холста. На нуле ползунка «притяжение» массы нет вовсе, силы
+          // тоже нет; на максимуме именно эта тяга держит всё вокруг себя,
+          // как и положено солнцу солнечной системы.
+          if (sunMassRatio > 0) {
+            const sdx = width / 2 - point.px;
+            const sdy = height / 2 - point.py;
+            const sDistSq = sdx * sdx + sdy * sdy + SUN_SOFTEN * SUN_SOFTEN;
+            const sDist = Math.sqrt(sDistSq);
+            const sPullMag = Math.min((SUN_PULL_BASE * sunMassRatio) / sDistSq, SUN_PULL_MAX);
+            point.px += (sdx / sDist) * sPullMag;
+            point.py += (sdy / sDist) * sPullMag;
+          }
+          if (point.px < -4) point.px += width + 8;
+          if (point.px > width + 4) point.px -= width + 8;
+          if (point.py < -4) point.py += height + 8;
+          if (point.py > height + 4) point.py -= height + 8;
+
+          if (sphere > 0 && point.sphereRadiusXY !== undefined) {
+            const sLockDx = point.px - width / 2;
+            const sLockDy = point.py - height / 2;
+            const sLockDist = Math.hypot(sLockDx, sLockDy) || 1;
+            const sLockedDist = lerp(sLockDist, point.sphereRadiusXY, sphere);
+            point.px = width / 2 + (sLockDx / sLockDist) * sLockedDist;
+            point.py = height / 2 + (sLockDy / sLockDist) * sLockedDist;
+          }
+
+          point._region = fieldSample.region;
+        } else {
+          point._region = 0.5;
+        }
+
+        // Осколок летит к своей случайной цели резким рывком, а не полем —
+        // потом, когда рывок закончен, точка спокойно передаётся обычному
+        // течению (полю, вихрю, связности) со скоростью, взятой из направления рывка.
+        if (point.shattering) {
+          const t = constrain((elapsed - point.shatterStart) / SHATTER_DURATION_MS, 0, 1);
+          if (t <= 0) {
+            point.px = point.shatterFromX;
+            point.py = point.shatterFromY;
+          } else {
+            const eased = 1 - Math.pow(1 - t, 3);
+            point.px = lerp(point.shatterFromX, point.shatterToX, eased);
+            point.py = lerp(point.shatterFromY, point.shatterToY, eased);
+            if (t >= 1) {
+              point.shattering = false;
+              point.vx = (point.shatterToX - point.shatterFromX) * 0.002;
+              point.vy = (point.shatterToY - point.shatterFromY) * 0.002;
+            }
+          }
+        }
+
+        liveScratch.push(point);
+      }
+
+      // Удалённость: точки одного слова не могут разлететься дальше
+      // maxSpread друг от друга. Меряем не от места, где слово стояло на
+      // экране, а от центра их же текущего облака — оно само может уплыть
+      // по полю и вихрю, а вот друг от друга точки дальше отведённого не
+      // разойдутся. Граница гасит скорость наружу, и точка скользит вдоль
+      // неё, а не бьётся о неё.
+      if (flow > 0 && liveScratch.length > 1) {
+        let centerX = 0;
+        let centerY = 0;
+        for (const point of liveScratch) {
+          centerX += point.px;
+          centerY += point.py;
+        }
+        centerX /= liveScratch.length;
+        centerY /= liveScratch.length;
+
+        for (const point of liveScratch) {
+          const fromCenterX = point.px - centerX;
+          const fromCenterY = point.py - centerY;
+          const distFromCenter = Math.hypot(fromCenterX, fromCenterY);
+          if (distFromCenter > maxSpread) {
+            const scale = maxSpread / distFromCenter;
+            point.px = centerX + fromCenterX * scale;
+            point.py = centerY + fromCenterY * scale;
+            const nx = fromCenterX / distFromCenter;
+            const ny = fromCenterY / distFromCenter;
+            const outward = point.vx * nx + point.vy * ny;
+            if (outward > 0) {
+              point.vx -= outward * nx;
+              point.vy -= outward * ny;
+            }
+          }
+        }
+      }
+
+      // Проход 2: цвет и попадание в общий список отрисовки.
+      for (const point of liveScratch) {
+        const local = constrain((progress - point.reveal * 0.42) / 0.58, 0, 1);
+        const reveal = local * local * (3 - 2 * local);
+
+        // Цвет точки сохраняется: он один раз взят из соответствующего
+        // места картинки тигла при рождении точки (см. sampleWord()) и
+        // больше не пересчитывается.
+        point.r = point.tigleR;
+        point.g = point.tigleG;
+        point.b = point.tigleB;
+        point.a = (185 + 30 * sin(breathTime * 0.7 + point.phase)) * reveal;
+        point.breathe = 0.96 + sin(breathTime + point.phase) * 0.08;
+        // Глубина: точка не привязана к плоскости — у неё своя, по фазе
+        // рождения, медленная волна вперёд-назад в объёме сцены. Гравитация
+        // и столкновения по-прежнему считаются в исходной плоскости (px, py),
+        // а на экране точка проецируется через масштаб глубины — ближе к
+        // камере крупнее, дальше — мельче, как и положено в 3D.
+        const breatheDepthZ = Math.sin(elapsed * POINT_DEPTH_SPEED + point.phase * 1.7) * POINT_DEPTH_AMPLITUDE;
+        point.depthZ = point.sphereDepth !== undefined ? lerp(breatheDepthZ, point.sphereDepth, sphere) : breatheDepthZ;
+        point.scale = DEPTH_FOCAL / (DEPTH_FOCAL + point.depthZ);
+        activePoints.push(point);
+      }
+    }
+
+    // Настоящие столкновения: соседей ищем через сетку (иначе на тысячах
+    // точек это слишком медленно), пару разбираем один раз — по возрастанию
+    // id, чтобы не отталкивать друг от друга дважды за кадр. Отталкивание —
+    // упругий удар равных масс: вдоль линии центров скорости обмениваются,
+    // поэтому сила и направление толчка равны скорости сближения точек.
+    // При каждом ударе обе точки вспыхивают белым на FLASH_MS.
+    function resolveCollisions() {
+      collideGrid.clear();
+      for (const point of activePoints) {
+        const gx = Math.floor(point.px / COLLIDE_CELL);
+        const gy = Math.floor(point.py / COLLIDE_CELL);
+        const key = gx * 4096 + gy;
+        const bucket = collideGrid.get(key);
+        if (bucket) bucket.push(point);
+        else collideGrid.set(key, [point]);
+      }
+
+      const now = millis();
+
+      for (const point of activePoints) {
+        const gx = Math.floor(point.px / COLLIDE_CELL);
+        const gy = Math.floor(point.py / COLLIDE_CELL);
+
+        for (let ox = -1; ox <= 1; ox++) {
+          for (let oy = -1; oy <= 1; oy++) {
+            const bucket = collideGrid.get((gx + ox) * 4096 + gy + oy);
+            if (!bucket) continue;
+
+            for (const other of bucket) {
+              if (other.id <= point.id) continue;
+
+              let dx = other.px - point.px;
+              let dy = other.py - point.py;
+              let dist = Math.hypot(dx, dy);
+              if (dist >= COLLIDE_DIST) continue;
+
+              if (dist < 0.0001) {
+                // Центры совпали — берём угол из сеяного random(), а не делим на ноль.
+                const angle = random(TWO_PI);
+                dx = cos(angle);
+                dy = sin(angle);
+                dist = 1;
+              }
+              const nx = dx / dist;
+              const ny = dy / dist;
+
+              // Расходятся сами — трогать нечего, но контакт уже случился.
+              const rvx = other.vx - point.vx;
+              const rvy = other.vy - point.vy;
+              const closingSpeed = -(rvx * nx + rvy * ny);
+              if (closingSpeed <= 0) continue;
+
+              // Упругий удар равных масс: обмен нормальной составляющей
+              // скорости. Сила толчка равна скорости сближения точек.
+              point.vx -= closingSpeed * nx;
+              point.vy -= closingSpeed * ny;
+              other.vx += closingSpeed * nx;
+              other.vy += closingSpeed * ny;
+
+              // Раздвигаем точки, чтобы они не залипали друг в друге.
+              const overlap = (COLLIDE_DIST - dist) / 2;
+              point.px -= nx * overlap;
+              point.py -= ny * overlap;
+              other.px += nx * overlap;
+              other.py += ny * overlap;
+
+              point.flashUntil = now + FLASH_MS;
+              other.flashUntil = now + FLASH_MS;
+
+              // Стеклянный звон — только когда сталкиваются точки одного
+              // слова (у каждой точки её слово записано на рождении и не
+              // меняется, так что сравнение надёжно). И даже тогда не на
+              // каждое столкновение подряд: общий предохранитель между
+              // звонами не даёт им слиться в шум, даже если точек одного
+              // слова сталкивается очень много за один кадр.
+              if (point.wordIndex === other.wordIndex && now - lastChimeAt >= CHIME_MIN_GAP_MS) {
+                triggerGlassChime(closingSpeed);
+                lastChimeAt = now;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Контурная фигура в правом нижнем углу: голова, позвоночник, две руки.
+    // В покое руки опущены. Как только приходит сигнал с микрофона, руки
+    // поднимаются к голове — фигура словно хватается за голову; чем громче
+    // звук, тем выше и ближе к голове ложатся руки. Часть, которая ярче
+    // отзывается на звук, ещё и светлеет, уходя в оранжевый.
+    // Под фигурой одна тонкая линия — общая громкость. Текста нет.
+    function drawPresenceBadge() {
+      if (!presenceEnabled || !micStream) return;
+      const x0 = width - 64;
+      const y0 = height - 92;
+      const base = color(PALETTE.muted);
+      const hot = color(PALETTE.orange);
+      const partColor = level => {
+        const c = lerpColor(base, hot, constrain(level, 0, 1));
+        c.setAlpha(110 + 145 * constrain(level, 0, 1));
+        return c;
+      };
+      push();
+      noFill();
+      strokeCap(ROUND);
+      strokeWeight(2);
+      stroke(partColor(zones.head));
+      circle(x0, y0, 12 + zones.head * 3);
+      stroke(partColor(zones.torso));
+      line(x0, y0 + 8, x0, y0 + 40);
+      stroke(partColor(zones.left));
+      line(x0 - 1, y0 + 14, lerp(x0 - 18, x0 - 6, zones.left), lerp(y0 + 34, y0 - 3, zones.left));
+      stroke(partColor(zones.right));
+      line(x0 + 1, y0 + 14, lerp(x0 + 18, x0 + 6, zones.right), lerp(y0 + 34, y0 - 3, zones.right));
+      strokeWeight(2);
+      stroke(base.levels[0], base.levels[1], base.levels[2], 90);
+      line(x0 - 22, y0 + 54, x0 + 22, y0 + 54);
+      stroke(partColor(soundLevel));
+      line(x0 - 22, y0 + 54, x0 - 22 + 44 * constrain(soundLevel, 0, 1), y0 + 54);
+      pop();
+    }
+
+    function drawDots(glow, trail) {
+      noStroke();
+      const context = drawingContext;
+      const now = millis();
+      for (const point of activePoints) {
+        // Вспышка от столкновения перекрывает обычный цвет точки на 0,1с.
+        const flashing = point.flashUntil > now;
+        const r = flashing ? 255 : point.r;
+        const g = flashing ? 255 : point.g;
+        const b = flashing ? 255 : point.b;
+        const a = flashing ? 255 : point.a;
+
+        // Проекция глубины: физика (px, py, vx, vy) остаётся в исходной
+        // плоскости, а на экран точка ложится растянутой от центра сцены на
+        // свой масштаб глубины — так рождается параллакс объёма.
+        const scale = point.scale;
+        const sx = width / 2 + (point.px - width / 2) * scale;
+        const sy = height / 2 + (point.py - height / 2) * scale;
+
+        if (trail > 0) {
+          const length = 72 * trail;
+          const tx = width / 2 + (point.px - point.vx * length - width / 2) * scale;
+          const ty = height / 2 + (point.py - point.vy * length - height / 2) * scale;
+          stroke(r, g, b, a * trail * 0.42);
+          strokeWeight(DOT_SIZE * point.breathe * scale * (0.55 + trail * 0.25));
+          line(sx, sy, tx, ty);
+          noStroke();
+        }
+        // На нуле остаётся только чёткое ядро точки. В остальных положениях
+        // ореол — один непрерывный радиальный градиент, без видимых колец.
+        if (glow > 0) {
+          const radius = lerp(DOT_SIZE * 0.9, 10, glow) * point.breathe * scale * (flashing ? 1.6 : 1);
+          const alpha = Math.round(a * glow * (flashing ? 0.32 : 0.18));
+          const halo = context.createRadialGradient(
+            sx, sy, 0,
+            sx, sy, radius
+          );
+          halo.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${alpha / 255})`);
+          halo.addColorStop(0.32, `rgba(${r}, ${g}, ${b}, ${(alpha * 0.48) / 255})`);
+          halo.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+          context.fillStyle = halo;
+          context.beginPath();
+          context.arc(sx, sy, radius, 0, TWO_PI);
+          context.fill();
+        }
+        fill(r, g, b, a);
+        circle(sx, sy, DOT_SIZE * point.breathe * scale * (flashing ? 1.3 : 1));
+      }
+    }
+
+    function setupHsbWheel() {
+      const wheel = document.getElementById('hsbWheel');
+      const dot = document.getElementById('hsbDot');
+      if (!wheel || !dot) return;
+
+      const placeDot = () => {
+        const angle = radians(cloudHue - 90);
+        const radius = (cloudSaturation / 100) * 18;
+        dot.style.left = `${22 + cos(angle) * radius}px`;
+        dot.style.top = `${22 + sin(angle) * radius}px`;
+        wheel.setAttribute('aria-valuetext', `оттенок ${Math.round(cloudHue)}, насыщенность ${Math.round(cloudSaturation)}`);
+      };
+      placeHsbDot = placeDot;
+
+      const chooseColor = event => {
+        const rect = wheel.getBoundingClientRect();
+        const dx = event.clientX - rect.left - rect.width / 2;
+        const dy = event.clientY - rect.top - rect.height / 2;
+        const radius = Math.min(Math.hypot(dx, dy), rect.width / 2);
+        cloudSaturation = (radius / (rect.width / 2)) * 100;
+        cloudHue = (degrees(atan2(dy, dx)) + 90 + 360) % 360;
+        placeDot();
+      };
+
+      wheel.addEventListener('pointerdown', event => {
+        wheel.setPointerCapture(event.pointerId);
+        chooseColor(event);
+      });
+      wheel.addEventListener('pointermove', event => {
+        if (event.buttons) chooseColor(event);
+      });
+      placeDot();
+    }
+
+    // Кнопка «Хаос»: каждому контролу блока «визуализация» — своё случайное
+    // значение в его собственных границах (min/max берутся прямо с ползунка,
+    // а не задаются повторно здесь), плюс случайные оттенок и насыщенность
+    // HSB-круга. Кнопка ищется один раз и, если её нет на странице, ничего
+    // не делает — не ломает остальную настройку.
+    function randomizeVisualization() {
+      const rangeInputs = document.querySelectorAll('#vizGroup input[type="range"]:not(#presence)');
+      rangeInputs.forEach(input => {
+        const lo = Number(input.min);
+        const hi = Number(input.max);
+        input.value = String(random(lo, hi));
+      });
+      cloudHue = random(0, 360);
+      cloudSaturation = random(0, 100);
+      if (placeHsbDot) placeHsbDot();
+    }
+
+    function setupChaosButton() {
+      const btn = document.getElementById('chaosBtn');
+      if (btn) btn.addEventListener('click', randomizeVisualization);
+    }
+
+    // Панель управления по умолчанию спрятана за левым краем экрана —
+    // кнопка в углу выдвигает и задвигает её, картинка на сцене не задета.
+    function setupControlsPanel() {
+      const panel = document.getElementById('controls');
+      const toggle = document.getElementById('controlsToggle');
+      if (!panel || !toggle) return;
+      toggle.addEventListener('click', () => {
+        const open = panel.classList.toggle('open');
+        toggle.textContent = open ? '✕' : '☰';
+      });
+    }
+
+    // Кнопка сама по себе только переключает намерение пользователя
+    // (presenceEnabled) — включать ли микрофон вообще. Фактическое «слушает
+    // ли микрофон прямо сейчас» показывает точка рядом: она берётся не
+    // отсюда, а из updatePresence(), которая знает, дал ли браузер доступ.
+    function setupPresenceToggle() {
+      if (!presenceToggleBtn) return;
+      presenceToggleBtn.addEventListener('click', () => {
+        presenceEnabled = !presenceEnabled;
+        updatePresenceToggleUI();
+      });
+      updatePresenceToggleUI();
+    }
+
+    function updatePresenceToggleUI() {
+      if (!presenceToggleBtn) return;
+      presenceToggleBtn.classList.toggle('live', !!micStream);
+      presenceToggleBtn.setAttribute('aria-pressed', presenceEnabled ? 'true' : 'false');
+      if (presenceToggleLabel) {
+        presenceToggleLabel.textContent = presenceEnabled ? 'микрофон: вкл' : 'микрофон: выкл';
+      }
+    }
+
+    // Кнопка «звук» устроена так же, как кнопка «микрофон»: сама она только
+    // переключает намерение (soundOutputEnabled), а точка рядом загорается,
+    // только когда звук и вправду разблокирован (audioReady — это случается
+    // один раз, при первом клике или нажатии клавиши где угодно на странице).
+    function setupSoundToggle() {
+      if (!soundToggleBtn) return;
+      soundToggleBtn.addEventListener('click', () => {
+        soundOutputEnabled = !soundOutputEnabled;
+        updateSoundToggleUI();
+      });
+      updateSoundToggleUI();
+    }
+
+    function updateSoundToggleUI() {
+      if (!soundToggleBtn) return;
+      soundToggleBtn.classList.toggle('live', soundOutputEnabled && audioReady);
+      soundToggleBtn.setAttribute('aria-pressed', soundOutputEnabled ? 'true' : 'false');
+      if (soundToggleLabel) {
+        soundToggleLabel.textContent = soundOutputEnabled ? 'звук: вкл' : 'звук: выкл';
+      }
+    }
+
+    // Линии между соседними точками: короткие связи внутри массы, они тянутся
+    // за потоком и гаснут с расстоянием, поэтому не читаются как царапины.
+    function drawLinks(linkShare) {
+      linkGrid.clear();
+      for (const point of activePoints) {
+        const key = (Math.floor(point.px / LINK_RADIUS)) * 4096 +
+          Math.floor(point.py / LINK_RADIUS);
+        const bucket = linkGrid.get(key);
+        if (bucket) bucket.push(point);
+        else linkGrid.set(key, [point]);
+      }
+
+      strokeWeight(1);
+      noFill();
+
+      for (const point of activePoints) {
+        if (point.linkRank > linkShare) continue;
+
+        const gx = Math.floor(point.px / LINK_RADIUS);
+        const gy = Math.floor(point.py / LINK_RADIUS);
+        let best = null;
+        let bestDist = 0;
+        let bestScore = Infinity;
+
+        // Ищем соседа не ближайшего, а на заметном расстоянии: короткие связи
+        // между соседними точками одного штриха на экране не видны.
+        for (let ox = -1; ox <= 1; ox++) {
+          for (let oy = -1; oy <= 1; oy++) {
+            const bucket = linkGrid.get((gx + ox) * 4096 + gy + oy);
+            if (!bucket) continue;
+            for (const other of bucket) {
+              if (other === point) continue;
+              const dx = other.px - point.px;
+              const dy = other.py - point.py;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              if (dist < LINK_MIN || dist > LINK_RADIUS) continue;
+              const score = Math.abs(dist - LINK_WANTED);
+              if (score < bestScore) {
+                bestScore = score;
+                bestDist = dist;
+                best = other;
+              }
+            }
+          }
+        }
+
+        if (!best) continue;
+        const fade = 1 - 0.55 * ((bestDist - LINK_MIN) / (LINK_RADIUS - LINK_MIN));
+        stroke(
+          (point.r + best.r) / 2,
+          (point.g + best.g) / 2,
+          (point.b + best.b) / 2,
+          Math.min(point.a, best.a) * 0.5 * fade
+        );
+        // Оба конца связи проецируются через свой масштаб глубины — если
+        // одна точка сейчас ближе к камере, а другая дальше, линия между
+        // ними тоже читается уходящей в объём, а не плоской.
+        const psx = width / 2 + (point.px - width / 2) * point.scale;
+        const psy = height / 2 + (point.py - height / 2) * point.scale;
+        const bsx = width / 2 + (best.px - width / 2) * best.scale;
+        const bsy = height / 2 + (best.py - height / 2) * best.scale;
+        line(psx, psy, bsx, bsy);
+      }
+      noStroke();
+    }
+  </script>
+</body>
+</html>

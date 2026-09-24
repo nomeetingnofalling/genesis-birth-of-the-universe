@@ -1,0 +1,2389 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Genesis - Birth of the Universe v.2.0 · Switch</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.13/p5.min.js" defer></script>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #0e0f12;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      color: #8a8f99;
+      font: 13px/1.2 'PT Mono', monospace;
+    }
+    #stage {
+      flex: 1 1 0;
+      min-height: 0;
+      max-width: 100%;
+      aspect-ratio: 16 / 9;
+    }
+    #controlsToggle {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      z-index: 21;
+      width: 34px;
+      height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #14161b;
+      border: 1px solid #2c2f38;
+      border-radius: 6px;
+      color: #e6e8ee;
+      font: 16px/1 'PT Mono', monospace;
+      cursor: pointer;
+    }
+    #controlsToggle:hover {
+      border-color: #ff7a50;
+      color: #ff7a50;
+    }
+    #controls {
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 20;
+      height: 100%;
+      width: min(84vw, 300px);
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 22px;
+      padding: 60px 16px 16px;
+      background: rgba(14, 15, 18, 0.2);
+      border-right: 1px solid #22242b;
+      overflow-y: auto;
+      transform: translateX(-100%);
+      transition: transform 0.25s ease;
+    }
+    #controls.open {
+      transform: translateX(0);
+    }
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+    }
+    .group-title {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #5a5f69;
+    }
+    .group-row {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 14px;
+    }
+    .group-body {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 18px;
+    }
+    .chaos-frame {
+      margin-top: auto;
+      padding: 16px 0 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .chaos-btn {
+      background: linear-gradient(180deg, #ff9a3d, #ff7a10);
+      border: 1px solid #a8480a;
+      border-radius: 6px;
+      color: #2a1400;
+      font: 700 13px/1.2 'PT Mono', monospace;
+      padding: 8px 20px;
+      cursor: pointer;
+      letter-spacing: 0.04em;
+      box-shadow: 0 3px 0 #9a3f08, 0 5px 8px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+      transform: translateY(0);
+      transition: transform 0.06s ease, box-shadow 0.06s ease, background 0.15s ease, color 0.15s ease;
+    }
+    .chaos-btn:hover {
+      background: linear-gradient(180deg, #ffe066, #ffcc00);
+      border-color: #cc9900;
+      color: #2a2000;
+    }
+    .chaos-btn:active {
+      transform: translateY(3px);
+      box-shadow: 0 0 0 #9a3f08, inset 0 2px 5px rgba(0, 0, 0, 0.4);
+    }
+    .mic-toggle {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      background: #14161b;
+      border: 1px solid #2c2f38;
+      border-radius: 6px;
+      color: #8a8f99;
+      font: 13px/1.2 'PT Mono', monospace;
+      padding: 9px 14px;
+      cursor: pointer;
+      transition: border-color 0.15s ease, color 0.15s ease;
+    }
+    .mic-toggle:hover {
+      border-color: #ff7a50;
+      color: #e6e8ee;
+    }
+    .mic-toggle-dot {
+      width: 8px;
+      height: 8px;
+      flex: 0 0 8px;
+      border-radius: 50%;
+      background: #3a3d45;
+      transition: background 0.15s ease, box-shadow 0.15s ease;
+    }
+    .mic-toggle.live .mic-toggle-dot {
+      background: #ff7a50;
+      box-shadow: 0 0 8px 2px rgba(255, 122, 80, 0.65);
+    }
+    .midi-hint {
+      font-size: 11px;
+      line-height: 1.4;
+      color: #5a5f69;
+    }
+    body.midi-learning #controls label:hover,
+    body.midi-learning #chaosBtn:hover,
+    body.midi-learning #presenceToggle:hover,
+    body.midi-learning #soundToggle:hover,
+    body.midi-learning #controlsToggle:hover {
+      outline: 2px dashed #ff7a50;
+      outline-offset: 2px;
+      cursor: crosshair;
+    }
+    .midi-armed {
+      outline: 2px solid #ff7a50;
+      outline-offset: 2px;
+      animation: midiPulse 0.9s ease-in-out infinite;
+    }
+    @keyframes midiPulse {
+      0%, 100% { outline-color: #ff7a50; }
+      50% { outline-color: #ffe066; }
+    }
+    .midi-live {
+      background: rgba(255, 122, 80, 0.18);
+      border-radius: 4px;
+      transition: background 0.18s ease;
+    }
+    #controls label {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px 10px;
+    }
+    #controls input[type="range"] {
+      flex: 1 1 120px;
+      min-width: 90px;
+      width: auto;
+      accent-color: #ff7a50;
+    }
+    #controls input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: #ff7a50;
+      cursor: pointer;
+    }
+    .control-value {
+      display: inline-block;
+      min-width: 2.6em;
+      color: #ff7a50;
+      font-variant-numeric: tabular-nums;
+    }
+    #controls .hsb-control {
+      gap: 9px;
+    }
+    .hsb-wheel {
+      position: relative;
+      width: 44px;
+      height: 44px;
+      flex: 0 0 44px;
+      border-radius: 50%;
+      cursor: crosshair;
+      touch-action: none;
+      background:
+        radial-gradient(circle, #e6e8ee 0 0, transparent 70%),
+        conic-gradient(#ff5050, #ff7a50, #ffe650, #58e878, #55dfff, #5aa9ff, #bd72ff, #ff5aa8, #ff5050);
+    }
+    .hsb-wheel::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: radial-gradient(circle, #e6e8ee 0, transparent 10%, transparent 100%);
+      pointer-events: none;
+    }
+    .hsb-dot {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      border: 2px solid #e6e8ee;
+      border-radius: 50%;
+      box-shadow: 0 0 0 1px #0e0f12;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+    canvas {
+      display: block;
+      width: 100% !important;
+      height: 100% !important;
+    }
+  </style>
+</head>
+<body>
+  <main id="stage" aria-label="Слова, собранные в строгую сетку и превращающиеся в точки"></main>
+  <button id="controlsToggle" type="button" aria-label="Показать или скрыть панель управления">☰</button>
+
+  <div id="controls">
+    <div class="control-group">
+      <div class="group-title">жизнь</div>
+      <div class="group-body">
+        <div class="group-row" id="vizGroup">
+          <label>плотность точек
+            <input id="density" type="range" min="0" max="100" value="60" />
+            <span class="control-value" id="densityValue">60</span>
+          </label>
+          <label>скорость движения
+            <input id="speed" type="range" min="0" max="200" value="100" />
+            <span class="control-value" id="speedValue">100</span>
+          </label>
+          <label>вихрь
+            <input id="vortex" type="range" min="0" max="100" value="100" />
+            <span class="control-value" id="vortexValue">100</span>
+          </label>
+          <label>сфера
+            <input id="sphere" type="range" min="0" max="100" value="0" />
+            <span class="control-value" id="sphereValue">0</span>
+          </label>
+          <label>удаленность
+            <input id="distance" type="range" min="0" max="100" value="100" />
+            <span class="control-value" id="distanceValue">100</span>
+          </label>
+          <label>связность
+            <input id="cohesion" type="range" min="0" max="100" value="0" />
+            <span class="control-value" id="cohesionValue">0</span>
+          </label>
+          <label>количество линий
+            <input id="links" type="range" min="0" max="100" value="0" />
+            <span class="control-value" id="linksValue">0</span>
+          </label>
+          <label>свечение
+            <input id="glow" type="range" min="0" max="100" value="45" />
+            <span class="control-value" id="glowValue">45</span>
+          </label>
+          <label>шлейф
+            <input id="trail" type="range" min="0" max="100" value="10" />
+            <span class="control-value" id="trailValue">10</span>
+          </label>
+          <label class="hsb-control">HSB облака
+            <span id="hsbWheel" class="hsb-wheel" role="slider" aria-label="Оттенок и насыщенность облака точек">
+              <span id="hsbDot" class="hsb-dot"></span>
+            </span>
+          </label>
+          <label>чувствительность HSB
+            <input id="hsbMix" type="range" min="0" max="100" value="0" />
+            <span class="control-value" id="hsbMixValue">0</span>
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="control-group">
+      <div class="group-title">звёзды</div>
+      <div class="group-row">
+        <label>звёзды вкл
+          <input id="starEnabled" type="checkbox" checked />
+        </label>
+        <label>скорость звёзд
+          <input id="starSpeed" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="starSpeedValue">0</span>
+        </label>
+        <label>контраст звёзд
+          <input id="starContrast" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="starContrastValue">0</span>
+        </label>
+        <label>яркость звёзд
+          <input id="starBrightness" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="starBrightnessValue">0</span>
+        </label>
+        <label>вращение звёзд
+          <input id="starSpin" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="starSpinValue">0</span>
+        </label>
+        <label>движение вперёд
+          <input id="starForward" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="starForwardValue">0</span>
+        </label>
+      </div>
+    </div>
+    <div class="control-group">
+      <div class="group-title">синяя планета</div>
+      <div class="group-row">
+        <label>масса планеты
+          <input id="planetMass" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="planetMassValue">0</span>
+        </label>
+        <label>скорость вращения
+          <input id="planetSpeed" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="planetSpeedValue">0</span>
+        </label>
+        <label>орбита
+          <input id="planetDistance" type="range" min="0" max="100" value="80" />
+          <span class="control-value" id="planetDistanceValue">80</span>
+        </label>
+      </div>
+    </div>
+    <div class="control-group">
+      <div class="group-title">красная планета</div>
+      <div class="group-row">
+        <label>масса планеты
+          <input id="planet2Mass" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="planet2MassValue">0</span>
+        </label>
+        <label>скорость вращения
+          <input id="planet2Speed" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="planet2SpeedValue">0</span>
+        </label>
+        <label>орбита
+          <input id="planet2Distance" type="range" min="0" max="100" value="80" />
+          <span class="control-value" id="planet2DistanceValue">80</span>
+        </label>
+      </div>
+    </div>
+    <div class="control-group">
+      <div class="group-title">точка вращения</div>
+      <div class="group-row">
+        <label>притяжение
+          <input id="sunAttraction" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="sunAttractionValue">0</span>
+        </label>
+      </div>
+    </div>
+    <div class="control-group">
+      <div class="group-title">звук</div>
+      <div class="group-row">
+        <button id="soundToggle" type="button" class="mic-toggle" aria-pressed="false">
+          <span class="mic-toggle-dot"></span>
+          <span id="soundToggleLabel">звук: выкл</span>
+        </button>
+        <label>громкость
+          <input id="volume" type="range" min="0" max="100" value="50" />
+          <span class="control-value" id="volumeValue" data-suffix="%">50%</span>
+        </label>
+        <label>частота
+          <input id="frequency" type="range" min="0" max="100" value="15" />
+          <span class="control-value" id="frequencyValue" data-suffix="%">15%</span>
+        </label>
+        <label>дилей
+          <input id="delay" type="range" min="0" max="100" value="60" />
+          <span class="control-value" id="delayValue" data-suffix="%">60%</span>
+        </label>
+      </div>
+    </div>
+    <div class="control-group">
+      <div class="group-title">присутствие</div>
+      <div class="group-row">
+        <label>чувствительность
+          <input id="presence" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="presenceValue">0</span>
+        </label>
+        <button id="presenceToggle" type="button" class="mic-toggle" aria-pressed="false">
+          <span class="mic-toggle-dot"></span>
+          <span id="presenceToggleLabel">микрофон: выкл</span>
+        </button>
+      </div>
+    </div>
+    <div class="control-group" id="midiGroup">
+      <div class="group-title">MIDI / геймпад (Akai MPK25, Nintendo Switch)</div>
+      <div class="group-row">
+        <button id="midiConnectBtn" type="button" class="mic-toggle" aria-pressed="false">
+          <span class="mic-toggle-dot"></span>
+          <span id="midiConnectLabel">MIDI: выкл</span>
+        </button>
+        <button id="midiLearnBtn" type="button" class="mic-toggle" aria-pressed="false">
+          <span class="mic-toggle-dot"></span>
+          <span id="midiLearnLabel">Learn: выкл</span>
+        </button>
+        <button id="midiResetBtn" type="button" class="mic-toggle" aria-pressed="false">
+          <span class="mic-toggle-dot"></span>
+          <span>Сбросить MIDI</span>
+        </button>
+        <div class="midi-hint" id="midiHint">Akai: нажми «Подключить MIDI». Switch: подключи Joy-Con или Pro Controller по Bluetooth и нажми на нём любую кнопку. Дальше «Learn» → клик по ползунку или кнопке на экране → покрути ручку/стик или нажми пэд/кнопку.</div>
+        <div class="midi-hint" id="gamepadStatus">Геймпад: не найден</div>
+      </div>
+    </div>
+    <div class="chaos-frame">
+      <button id="chaosBtn" type="button" class="chaos-btn">Хаос</button>
+    </div>
+  </div>
+
+  <script>
+    const PALETTE = {
+      background: '#0e0f12',
+      light: '#e6e8ee',
+      muted: '#8a8f99',
+      orange: '#ff7a50',
+      blue: '#5aa9ff'
+    };
+
+    const INTRO_MS = 60000;
+    const WORD_DISSOLVE_SPEEDUP = 2;
+    const INTRO_GLOW_BASE = 70;
+    const INTRO_START_ALPHA = 0.85;
+    const GLOW_COLORS = [PALETTE.blue, '#2ecc8f', PALETTE.light, '#ff5c5c', '#ffd166'];
+
+    function sampleGlowColor(t) {
+      const clamped = constrain(t, 0, 1);
+      const scaled = clamped * (GLOW_COLORS.length - 1);
+      const idx = Math.min(GLOW_COLORS.length - 2, Math.floor(scaled));
+      const localT = scaled - idx;
+      return lerpColor(color(GLOW_COLORS[idx]), color(GLOW_COLORS[idx + 1]), localT);
+    }
+
+    // Вставь сюда base64-картинку буквы «А» из старого файла.
+    const TIGLE_GLYPH_DATA_URI = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAlwAAAJbCAYAAAAxGUoIAABH6UlEQVR4nO39a3ccx5Gw7d6RWdUASEmWfBzP+LHHp7HX/gf7/3/Z39/1ruWx5+Cx57Fl2TpYEkl0V2XG/pDVDYAWdbBAsknfl1YLRKMBVFezu4ORkREgSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIk6fmKl30Akr663yyZb9Ttk4DaufNc7sePHRJoBQoxHa8/3jYhtj8/arBW+GXEvb8u/EdmXuT48xxw2A43bx328XNuXZdPfXz6wL7o83zqe+Op28Z23ta4OWeRULYb7hnnrOS4RIEn28/82T2e519n5pQwr+P8lAmWWA==...".slice(0, 0) || "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAlwAAAJbCAYAAAAxGUoIAABH6UlEQVR4nO39a3ccx5Gw7d6RWdUASEmWfBzP+LHHp7HX/gf7/3/Z39/1ruWx5+Cx57Fl2TpYEkl0V2XG/pDVDYAWdbBAsknfl1YLRKMBVFezu4ORkREgSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIk6fmKl30Akr663yyZb9Ttk4DaufNc7sePHRJoBQoxHa8/3jYhtj8/arBW+GXEvb8u/EdmXuT48xxw2A43bx328XNuXZdPfXz6wL7o83zqe+Op28Z23ta4OWeRULYb7hnnrOS4RIEn28/82T2e519n5pQwr+P8lAmWWA==...";
+
+    const DOT_STEP = 4;
+    const DOT_SIZE = 3.2;
+    const MAX_SPEED = 2.0;
+    const FIELD_CELL = 40;
+    const FIELD_WAVE = 0.055;
+    const LINK_RADIUS = 64;
+    const LINK_MIN = 20;
+    const LINK_WANTED = 46;
+    const LINK_MAX_SHARE = 0.22;
+    const DIST_MIN_SHARE = 0.10;
+    const DIST_MAX_SHARE = 0.80;
+    const COHESION_RATE = 0.03;
+    const COHESION_MAX_PULL = 1.6;
+    const VIBRATION_AMP = 3.5;
+    const VIBRATION_SPEED = 0.025;
+    const MOON_MASS_KG = 7.342e22;
+    const SATURN_MASS_KG = 5.683e26;
+    const MOON_ORBIT_PERIOD_S = 42;
+    const PLANET_ORBIT_RX = 230;
+    const PLANET_ORBIT_RY = 95;
+    const PLANET_ORBIT_GROWTH = 4;
+    const PLANET_RADIUS_MIN = 3;
+    const PLANET_RADIUS_MAX = 9.3;
+    const PLANET_PULL_BASE = 2600;
+    const PLANET_PULL_MAX = 6.4;
+    const PLANET_SOFTEN = 24;
+    const MARS_EARTH_ORBIT_RATIO = 1.524;
+    const PLANET2_ORBIT_RX = PLANET_ORBIT_RX * MARS_EARTH_ORBIT_RATIO;
+    const PLANET2_ORBIT_RY = PLANET_ORBIT_RY * MARS_EARTH_ORBIT_RATIO;
+    const SUN_MASS_KG = 1.989e30;
+    const SUN_PULL_BASE = 0.013;
+    const SUN_PULL_MAX = 8.5;
+    const SUN_SOFTEN = 40;
+    const SPHERE_RADIUS_MIN = 60;
+    const SPHERE_RADIUS_MAX = 520;
+    const SPHERE_ANGULAR_SPEED = 0.8;
+    const SPHERE_PHI_SPEED = 0.045;
+    const SPHERE_PHI_RATE_MIN = 0.6;
+    const SPHERE_PHI_RATE_MAX = 1.4;
+    const SUN_RADIUS_MIN = 4;
+    const SUN_RADIUS_MAX = 14;
+    const DEPTH_FOCAL = 640;
+    const POINT_DEPTH_AMPLITUDE = 210;
+    const POINT_DEPTH_SPEED = 0.00046;
+    const PLANET_DEPTH_TILT = 150;
+    const PLANET2_DEPTH_TILT = 150;
+    const STAR_COUNT = 240;
+    const STAR_FIELD_SPREAD = 900;
+    const STAR_NEAR_Z = 30;
+    const STAR_FAR_Z = 1700;
+    const STAR_FLIGHT_SPEED = 900;
+    const STAR_SPEED_MUL_MIN = 0.5;
+    const STAR_SPEED_MUL_MAX = 1.8;
+    const STAR_SPIN_MAX_SPEED = ((2 * Math.PI) / 15) * 10;
+    const STAR_TAIL_STRETCH = 3;
+    const COLLIDE_DIST = DOT_SIZE;
+    const COLLIDE_CELL = DOT_SIZE * 4;
+    const FLASH_MS = 100;
+    const CHIME_VOICES = 8;
+    const CHIME_MIN_GAP_MS = 90;
+    const CHIME_FREQ_AT_0 = 100;
+    const CHIME_FREQ_AT_100 = 800;
+    const CHIME_PARTIAL_MIN = 1.004;
+    const CHIME_PARTIAL_MAX = 1.012;
+    const CHIME_ATTACK = 0.006;
+    const CHIME_DECAY = 0.55;
+    const CHIME_PEAK = 0.07;
+    const CHIME_PARTIAL_GAIN = 0.85;
+    const CHIME_THIRD_RATIO = Math.pow(2, -4 / 12);
+    const CHIME_THIRD_GAIN = 0.7;
+    const CHIME_FOURTH_RATIO = Math.pow(2, -2 / 12);
+    const CHIME_FOURTH_GAIN = 0.55;
+    const CHIME_FIFTH_RATIO = Math.pow(2, 7 / 12);
+    const CHIME_FIFTH_GAIN = 0.5;
+    const CHIME_OCTAVE_RATIO = 2;
+    const CHIME_OCTAVE_GAIN = 0.35;
+
+    const CLOUD_RADIUS = 340;
+    const CLOUD_POINT_COUNT = 5200;
+
+    // 32 предзапечённых спрайта свечения — вместо createRadialGradient
+    // на каждую точку каждый кадр.
+    const GLOW_BUCKETS = 32;
+    let glowSprites = [];
+    let hsbGlowSprite = null;
+    let hsbGlowSpriteHue = -1;
+    let hsbGlowSpriteSat = -1;
+
+    let introGlyphImg = null;
+    let introGlyphReady = false;
+    let introGlyphLayer = null;
+    let pieces = [];
+    let startedAt = 0;
+    let field = null;
+    let fieldGain = 0;
+    let fieldFrame = 0;
+    let activePoints = [];
+    let liveScratch = [];
+    let linkGrid = new Map();
+    let collideGrid = new Map();
+    let nextPointId = 0;
+    let audioCtx = null;
+    let chimeVoices = [];
+    let nextChimeVoice = 0;
+    let lastChimeAt = -Infinity;
+    let audioReady = false;
+    let densityInput = null;
+    let speedInput = null;
+    let vortexInput = null;
+    let sphereInput = null;
+    let distanceInput = null;
+    let cohesionInput = null;
+    let linksInput = null;
+    let glowInput = null;
+    let trailInput = null;
+    let presenceInput = null;
+    let volumeInput = null;
+    let frequencyInput = null;
+    let soundOutputEnabled = false;
+    let soundToggleBtn = null;
+    let soundToggleLabel = null;
+    let delayInput = null;
+    let delayNode = null;
+    let delayFeedback = null;
+    let delayWet = null;
+    let micStream = null;
+    let micSource = null;
+    let analyser = null;
+    let micData = null;
+    let micReady = false;
+    let micRequesting = false;
+    let soundLevel = 0;
+    let vibrationEnv = 0;
+    const zones = { head: 0, torso: 0, left: 0, right: 0 };
+    let presenceAt = 0;
+    let presenceEnabled = false;
+    let presenceToggleBtn = null;
+    let presenceToggleLabel = null;
+    let planetMassInput = null;
+    let planetSpeedInput = null;
+    let planetDistanceInput = null;
+    let planetAngle = 0;
+    let planetAt = 0;
+    let planetX = 0;
+    let planetY = 0;
+    let planetMassRatio = 1;
+    let planetDistanceRatio = 1;
+    let planetRadiusPx = PLANET_RADIUS_MIN;
+    let planet2MassInput = null;
+    let planet2SpeedInput = null;
+    let planet2DistanceInput = null;
+    let planet2Angle = 0;
+    let planet2At = 0;
+    let planet2X = 0;
+    let planet2Y = 0;
+    let planet2MassRatio = 1;
+    let planet2DistanceRatio = 1;
+    let planet2RadiusPx = PLANET_RADIUS_MIN;
+    let sunAttractionInput = null;
+    let sunMassRatio = 0;
+    let sphereRadiusPx = 0;
+    let sunRadiusPx = SUN_RADIUS_MIN;
+    let planetDepthZ = 0;
+    let planetScale = 1;
+    let planet2DepthZ = 0;
+    let planet2Scale = 1;
+    let stars = [];
+    let starsAt = 0;
+    let starEnabledInput = null;
+    let starSpeedInput = null;
+    let starContrastInput = null;
+    let starBrightnessInput = null;
+    let starSpinInput = null;
+    let starForwardInput = null;
+    let starSpinAngle = 0;
+    let cloudHue = 17;
+    let cloudSaturation = 68;
+    let placeHsbDot = null;
+    let hsbMixInput = null;
+    let controlRangeInputs = [];
+    let perfPixelDensity = 1;
+    let perfPixelDensityCeiling = 1;
+    let perfCurrentFps = 30;
+    let perfWindowStart = 0;
+    let perfLowStreak = 0;
+    let perfHighStreak = 0;
+    let lastMixHue = null;
+    let lastMixSat = null;
+    let cloudMixAmount = 0;
+    let cloudMixR = 230;
+    let cloudMixG = 232;
+    let cloudMixB = 238;
+    let lastControlValues = {};
+
+    function preload() {
+      try {
+        introGlyphImg = loadImage(
+          TIGLE_GLYPH_DATA_URI,
+          () => { introGlyphReady = true; },
+          () => { introGlyphReady = false; }
+        );
+      } catch (err) {
+        introGlyphReady = false;
+      }
+    }
+
+    // ===================== MIDI: Akai MPK25 и любой Web MIDI контроллер =====================
+    // Режим "Learn": жмём Learn -> кликаем по ползунку/чекбоксу/кнопке на экране ->
+    // крутим ручку или жмём пэд на контроллере - связка запоминается в localStorage.
+    // Банки ручек на самом MPK25 (A/B/C/D) переключают номера CC у одних и тех же
+    // физических ручек - так можно привязать больше 8 ползунков, просто переключая
+    // банк на контроллере и заново привязывая нужные ручки через Learn.
+    const MIDI_STORAGE_KEY = 'birthMidiMap_v1';
+    const MIDI_ACTIONS = {
+      chaosBtn: () => document.getElementById('chaosBtn')?.click(),
+      presenceToggle: () => document.getElementById('presenceToggle')?.click(),
+      soundToggle: () => document.getElementById('soundToggle')?.click(),
+      controlsToggle: () => document.getElementById('controlsToggle')?.click()
+    };
+    const MIDI_ACTION_NAMES = {
+      chaosBtn: 'Хаос',
+      presenceToggle: 'микрофон вкл/выкл',
+      soundToggle: 'звук вкл/выкл',
+      controlsToggle: 'показать/скрыть панель'
+    };
+    let midiAccess = null;
+    let midiLearnMode = false;
+    let midiArmedTarget = null;
+    let midiMap = {};
+    let midiCcEdgeState = {};
+    let midiHintEl = null;
+
+    function midiLoadMap() {
+      try {
+        const raw = localStorage.getItem(MIDI_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        return parsed && typeof parsed === 'object' ? parsed : {};
+      } catch (err) {
+        return {};
+      }
+    }
+
+    function midiSaveMap() {
+      try {
+        localStorage.setItem(MIDI_STORAGE_KEY, JSON.stringify(midiMap));
+      } catch (err) {
+        // хранилище недоступно - привязки просто не переживут перезагрузку страницы
+      }
+    }
+
+    function midiFindLearnable(el) {
+      if (!el || !el.closest) return null;
+      const label = el.closest('#controls label');
+      if (label) {
+        const input = label.querySelector('input[type="range"], input[type="checkbox"]');
+        if (input && input.id) return { kind: 'range', id: input.id, input };
+      }
+      const actionEl = el.closest('#chaosBtn, #presenceToggle, #soundToggle, #controlsToggle');
+      if (actionEl && MIDI_ACTIONS[actionEl.id]) {
+        return { kind: 'action', id: actionEl.id, input: actionEl };
+      }
+      return null;
+    }
+
+    function midiDescribeTarget(target) {
+      if (!target) return '';
+      if (target.kind === 'action') return MIDI_ACTION_NAMES[target.id] || target.id;
+      const label = target.input && target.input.closest ? target.input.closest('label') : null;
+      if (label) {
+        const text = Array.from(label.childNodes)
+          .filter(node => node.nodeType === 3)
+          .map(node => node.textContent.trim())
+          .join(' ')
+          .trim();
+        if (text) return text;
+      }
+      return target.id;
+    }
+
+    function midiSetArmed(target, on) {
+      if (!target || !target.input) return;
+      const el = target.kind === 'range' ? (target.input.closest('label') || target.input) : target.input;
+      el.classList.toggle('midi-armed', on);
+    }
+
+    function midiFlash(el) {
+      if (!el) return;
+      el.classList.add('midi-live');
+      clearTimeout(el._midiFlashTimer);
+      el._midiFlashTimer = setTimeout(() => el.classList.remove('midi-live'), 180);
+    }
+
+    function midiApplyValue(binding, value, source) {
+      if (!binding) return;
+      if (binding.kind === 'range') {
+        const input = document.getElementById(binding.id);
+        if (!input) return;
+        if (input.type === 'checkbox') {
+          if (source === 'note' || source === 'gpb') input.checked = !input.checked;
+          else input.checked = value >= 64;
+        } else {
+          const min = Number(input.min);
+          const max = Number(input.max);
+          if (source === 'gpb') {
+            input.value = String(Number(input.value) > (min + max) / 2 ? min : max);
+          } else {
+            input.value = String(min + (value / 127) * (max - min));
+          }
+        }
+        midiFlash(input.closest('label') || input);
+        return;
+      }
+      if (binding.kind === 'action') {
+        if (source === 'note' || source === 'gpb') {
+          MIDI_ACTIONS[binding.id]?.();
+          midiFlash(document.getElementById(binding.id));
+          return;
+        }
+        // CC на кнопке: срабатывает один раз при переходе через середину хода
+        // ручки, чтобы не щёлкать по многу раз, пока ручку крутят.
+        const prev = midiCcEdgeState[binding.id] || 0;
+        if (value >= 64 && prev < 64) {
+          MIDI_ACTIONS[binding.id]?.();
+          midiFlash(document.getElementById(binding.id));
+        }
+        midiCcEdgeState[binding.id] = value;
+      }
+    }
+
+    function midiOnEvent(source, num, value) {
+      const key = source + ':' + num;
+      if (midiLearnMode && midiArmedTarget) {
+        const target = midiArmedTarget;
+        midiMap[key] = { kind: target.kind, id: target.id };
+        midiSaveMap();
+        midiSetArmed(target, false);
+        midiArmedTarget = null;
+        if (midiHintEl) {
+          midiHintEl.textContent = midiDescribeTarget(target) + ' <- ' +
+            (MIDI_SOURCE_NAMES[source] || source + ' ') + num +
+            '. Выбери следующий элемент или выключи Learn.';
+        }
+        return;
+      }
+      midiApplyValue(midiMap[key], value, source);
+    }
+
+    function midiOnMessage(event) {
+      const data = event.data;
+      if (!data || data.length < 2) return;
+      const status = data[0];
+      const type = status & 0xf0;
+      if (type === 0xb0) {
+        midiOnEvent('cc', data[1], data[2] || 0);
+      } else if (type === 0x90 && (data[2] || 0) > 0) {
+        midiOnEvent('note', data[1], data[2]);
+      }
+    }
+
+    function midiAttachInputs(connectBtn, connectLabel) {
+      if (!midiAccess) return;
+      const names = [];
+      for (const input of midiAccess.inputs.values()) {
+        input.onmidimessage = midiOnMessage;
+        names.push(input.name || 'MIDI-устройство');
+      }
+      if (names.length === 0) {
+        if (connectLabel) connectLabel.textContent = 'MIDI: контроллер не найден';
+        connectBtn.classList.remove('live');
+        connectBtn.setAttribute('aria-pressed', 'false');
+        return;
+      }
+      const mpk = names.find(name => /mpk/i.test(name));
+      if (connectLabel) connectLabel.textContent = 'MIDI: ' + (mpk || names.join(', '));
+      connectBtn.classList.add('live');
+      connectBtn.setAttribute('aria-pressed', 'true');
+    }
+
+    function setupMidiControl() {
+      const connectBtn = document.getElementById('midiConnectBtn');
+      const connectLabel = document.getElementById('midiConnectLabel');
+      const learnBtn = document.getElementById('midiLearnBtn');
+      const learnLabel = document.getElementById('midiLearnLabel');
+      const resetBtn = document.getElementById('midiResetBtn');
+      midiHintEl = document.getElementById('midiHint');
+      if (!connectBtn || !learnBtn || !resetBtn) return;
+
+      midiMap = midiLoadMap();
+
+      connectBtn.addEventListener('click', async () => {
+        if (!navigator.requestMIDIAccess) {
+          if (connectLabel) connectLabel.textContent = 'MIDI: браузер не поддерживает';
+          return;
+        }
+        try {
+          midiAccess = await navigator.requestMIDIAccess({ sysex: false });
+          midiAttachInputs(connectBtn, connectLabel);
+          midiAccess.onstatechange = () => midiAttachInputs(connectBtn, connectLabel);
+        } catch (err) {
+          if (connectLabel) connectLabel.textContent = 'MIDI: доступ запрещён';
+        }
+      });
+
+      learnBtn.addEventListener('click', () => {
+        midiLearnMode = !midiLearnMode;
+        document.body.classList.toggle('midi-learning', midiLearnMode);
+        learnBtn.classList.toggle('live', midiLearnMode);
+        learnBtn.setAttribute('aria-pressed', midiLearnMode ? 'true' : 'false');
+        if (learnLabel) learnLabel.textContent = midiLearnMode ? 'Learn: вкл' : 'Learn: выкл';
+        if (!midiLearnMode && midiArmedTarget) {
+          midiSetArmed(midiArmedTarget, false);
+          midiArmedTarget = null;
+        }
+        if (midiHintEl) {
+          midiHintEl.textContent = midiLearnMode
+            ? 'Клик по ползунку, чекбоксу или кнопке на экране - затем крути ручку или жми пэд на контроллере.'
+            : 'Akai: «Подключить MIDI». Switch: Bluetooth + любая кнопка на контроллере. Затем «Learn», элемент на экране и ручка/стик/пэд/кнопка.';
+        }
+      });
+
+      resetBtn.addEventListener('click', () => {
+        midiMap = {};
+        midiCcEdgeState = {};
+        midiSaveMap();
+        if (midiHintEl) midiHintEl.textContent = 'Все привязки MIDI сброшены.';
+      });
+
+      document.addEventListener('click', event => {
+        if (!midiLearnMode) return;
+        const target = midiFindLearnable(event.target);
+        if (!target) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (midiArmedTarget) midiSetArmed(midiArmedTarget, false);
+        midiArmedTarget = target;
+        midiSetArmed(midiArmedTarget, true);
+        if (midiHintEl) midiHintEl.textContent = 'Ждём сигнал для «' + midiDescribeTarget(target) + '»...';
+      }, true);
+    }
+
+// ===================== Производительность: под конкретную машину =====================
+    // Браузер не даёт напрямую раскидать отрисовку канвы по ядрам процессора -
+    // это ограничение самого Canvas 2D, а не этого файла. Что реально работает:
+    // подстраивать чёткость картинки под то, что машина держит без просадок.
+    const PERF_SAMPLE_MS = 1000;
+    const PERF_LOW_FPS = 24;
+    const PERF_HIGH_FPS = 28;
+
+    // Прикидывает, насколько можно поднять плотность пикселей канвы на этой
+    // машине - по числу логических ядер и памяти, которые видит браузер.
+    // Это только потолок; реальный разгон делает updatePerfScaling ниже,
+    // глядя на живой FPS.
+    function detectPerfCeiling() {
+      const cores = navigator.hardwareConcurrency || 4;
+      const mem = navigator.deviceMemory || 4; // ГБ; есть только в Chrome/Edge
+      // Замер 2026-09-24 (claude/optimization-plan.md): кадр упирается в тысячи
+      // вызовов Canvas 2D, и рост плотности пикселей их только утяжеляет — на
+      // этом Mac регулятор качался 30↔20 fps. Пока точки рисуются через
+      // Canvas 2D, потолок держим на 1; регулятор остаётся страховкой вниз.
+      if (cores > 0 && mem > 0) return 1;
+      return 1;
+    }
+
+    // Раз в секунду смотрит на реальный FPS: держится ниже 24 - плотность
+    // пикселей канвы плавно снижается, пока не станет снова плавно; держится
+    // выше 28 и есть запас по мощности машины - плавно поднимается обратно,
+    // вплоть до потолка этой машины. Работает тихо, без участия пользователя.
+    function updatePerfScaling() {
+      const now = millis();
+      if (now - perfWindowStart < PERF_SAMPLE_MS) return;
+      perfWindowStart = now;
+      perfCurrentFps = frameRate();
+
+      if (perfCurrentFps < PERF_LOW_FPS) {
+        perfHighStreak = 0;
+        perfLowStreak++;
+        if (perfLowStreak >= 2 && perfPixelDensity > 1) {
+          perfPixelDensity = Math.max(1, perfPixelDensity - 0.25);
+          pixelDensity(perfPixelDensity);
+          perfLowStreak = 0;
+        }
+      } else if (perfCurrentFps > PERF_HIGH_FPS) {
+        perfLowStreak = 0;
+        perfHighStreak++;
+        if (perfHighStreak >= 3 && perfPixelDensity < perfPixelDensityCeiling) {
+          perfPixelDensity = Math.min(perfPixelDensityCeiling, perfPixelDensity + 0.25);
+          pixelDensity(perfPixelDensity);
+          perfHighStreak = 0;
+        }
+      } else {
+        perfLowStreak = 0;
+        perfHighStreak = 0;
+      }
+    }
+
+    // Текущий FPS и множитель чёткости в правом верхнем углу - видно, что
+    // картинка не тормозит, без открытия консоли разработчика.
+    function drawPerfHud() {
+      push();
+      noStroke();
+      fill(138, 143, 153, 210);
+      textAlign(RIGHT, TOP);
+      textSize(12);
+      text('FPS ' + Math.round(frameRate()) + ' \u00b7 x' + perfPixelDensity.toFixed(2), width - 14, 14);
+      pop();
+    }
+
+    // ===================== Геймпад: Nintendo Switch (Joy-Con / Pro Controller) =====================
+    // Геймпад — не MIDI-устройство: браузер отдаёт его через Gamepad API, где
+    // нет событий «значение изменилось», поэтому состояние опрашивается раз в
+    // кадр. Всё идёт через тот же midiOnEvent / midiMap, что и MIDI, — значит,
+    // Learn, сохранение привязок и «Сбросить MIDI» общие для Akai и Switch.
+    // Раскладка кнопок Joy-Con в разных браузерах разная, но Learn это не
+    // волнует: привязывается тот номер кнопки/оси, который браузер прислал.
+    // Гироскоп и акселерометр через Gamepad API браузер не отдаёт.
+    //
+    // Стик пружинит обратно в центр, поэтому на ползунке он работает как
+    // «газ»: отклонил — значение плавно едет, отпустил — остаётся где было.
+    const GP_AXIS_DEADZONE = 0.18;
+    const GP_AXIS_PUSH = 0.5;
+    const GP_RANGE_SECONDS = 1.5; // весь ход ползунка при стике до упора
+    const MIDI_SOURCE_NAMES = {
+      cc: 'ручка, CC ',
+      note: 'пэд, нота ',
+      gpa: 'стик, ось ',
+      gpb: 'кнопка геймпада '
+    };
+    const gpState = {};
+    const gpRangeAcc = {};
+    let gamepadStatusEl = null;
+
+    function pollGamepads() {
+      if (!navigator.getGamepads) return;
+      const pads = navigator.getGamepads();
+      const dt = Math.min(typeof deltaTime === 'number' ? deltaTime : 33, 100) / 1000;
+      for (let i = 0; i < pads.length; i++) {
+        const pad = pads[i];
+        if (!pad || !pad.connected) continue;
+        let st = gpState[i];
+        if (!st || st.id !== pad.id) {
+          // Первое появление: запоминаем положение покоя, ничего не отправляем.
+          gpState[i] = {
+            id: pad.id,
+            baseline: Array.from(pad.axes, v => (Number.isFinite(v) ? v : 0)),
+            latched: [],
+            pushed: [],
+            buttons: Array.from(pad.buttons, btn => btn.pressed || btn.value > 0.5)
+          };
+          continue;
+        }
+        const invertY = pad.mapping === 'standard';
+        for (let a = 0; a < pad.axes.length; a++) {
+          const raw = pad.axes[a];
+          if (!Number.isFinite(raw)) continue;
+          let dev = constrain(raw - (st.baseline[a] || 0), -1, 1);
+          if (Math.abs(dev) < GP_AXIS_DEADZONE) dev = 0;
+          if (invertY && a % 2 === 1) dev = -dev; // вверх = больше
+          if (st.latched[a]) {
+            if (dev === 0) st.latched[a] = false;
+            continue;
+          }
+          if (midiLearnMode && midiArmedTarget) {
+            if (Math.abs(dev) >= GP_AXIS_PUSH) {
+              midiOnEvent('gpa', a, 127);
+              st.latched[a] = true; // не применять, пока стик не вернётся в центр
+            }
+            continue;
+          }
+          const binding = midiMap['gpa:' + a];
+          if (!binding) continue;
+          const input = binding.kind === 'range' ? document.getElementById(binding.id) : null;
+          if (input && input.type === 'range') {
+            if (dev === 0) continue;
+            const min = Number(input.min);
+            const max = Number(input.max);
+            const shown = Number(input.value);
+            const acc = gpRangeAcc[input.id];
+            const cur = acc !== undefined && Math.round(acc) === shown ? acc : shown;
+            const next = constrain(cur + dev * (max - min) * dt / GP_RANGE_SECONDS, min, max);
+            gpRangeAcc[input.id] = next;
+            input.value = String(next);
+            midiFlash(input.closest('label') || input);
+          } else {
+            // Стик на кнопке или чекбоксе: срабатывает один раз при толчке.
+            const pushed = Math.abs(dev) >= GP_AXIS_PUSH;
+            if (pushed && !st.pushed[a]) midiApplyValue(binding, 127, 'gpb');
+            st.pushed[a] = pushed;
+          }
+        }
+        for (let b = 0; b < pad.buttons.length; b++) {
+          const btn = pad.buttons[b];
+          const pressed = btn.pressed || btn.value > 0.5;
+          if (pressed === !!st.buttons[b]) continue;
+          st.buttons[b] = pressed;
+          if (pressed) midiOnEvent('gpb', b, 127);
+        }
+      }
+    }
+
+    function gpUpdateStatus() {
+      if (!gamepadStatusEl || !navigator.getGamepads) return;
+      const names = Array.from(navigator.getGamepads())
+        .filter(pad => pad && pad.connected)
+        .map(pad => pad.id.replace(/\s*\(.*\)\s*$/, '') || pad.id);
+      gamepadStatusEl.textContent = names.length
+        ? 'Геймпад: ' + names.join(', ')
+        : 'Геймпад: не найден';
+    }
+
+    function setupGamepadControl() {
+      gamepadStatusEl = document.getElementById('gamepadStatus');
+      if (!gamepadStatusEl) return;
+      if (!navigator.getGamepads) {
+        gamepadStatusEl.textContent = 'Геймпад: браузер не поддерживает';
+        return;
+      }
+      window.addEventListener('gamepadconnected', gpUpdateStatus);
+      window.addEventListener('gamepaddisconnected', event => {
+        delete gpState[event.gamepad.index];
+        gpUpdateStatus();
+      });
+      gpUpdateStatus();
+    }
+
+    function setup() {
+      const canvas = createCanvas(1280, 720);
+      canvas.parent('stage');
+      perfPixelDensityCeiling = detectPerfCeiling();
+      pixelDensity(perfPixelDensity);
+      frameRate(30);
+      randomSeed(7);
+      noiseSeed(7);
+      textFont('PT Mono');
+      textAlign(CENTER, CENTER);
+      noStroke();
+
+      buildGlowSprites();
+      buildIntroLayers();
+      buildCloud();
+      buildField();
+      buildStars();
+      densityInput = document.getElementById('density');
+      speedInput = document.getElementById('speed');
+      vortexInput = document.getElementById('vortex');
+      sphereInput = document.getElementById('sphere');
+      distanceInput = document.getElementById('distance');
+      cohesionInput = document.getElementById('cohesion');
+      linksInput = document.getElementById('links');
+      glowInput = document.getElementById('glow');
+      trailInput = document.getElementById('trail');
+      starEnabledInput = document.getElementById('starEnabled');
+      starSpeedInput = document.getElementById('starSpeed');
+      starContrastInput = document.getElementById('starContrast');
+      starBrightnessInput = document.getElementById('starBrightness');
+      starSpinInput = document.getElementById('starSpin');
+      starForwardInput = document.getElementById('starForward');
+      presenceInput = document.getElementById('presence');
+      volumeInput = document.getElementById('volume');
+      frequencyInput = document.getElementById('frequency');
+      soundToggleBtn = document.getElementById('soundToggle');
+      soundToggleLabel = document.getElementById('soundToggleLabel');
+      delayInput = document.getElementById('delay');
+      hsbMixInput = document.getElementById('hsbMix');
+      planetMassInput = document.getElementById('planetMass');
+      planetSpeedInput = document.getElementById('planetSpeed');
+      planetDistanceInput = document.getElementById('planetDistance');
+      planet2MassInput = document.getElementById('planet2Mass');
+      planet2SpeedInput = document.getElementById('planet2Speed');
+      planet2DistanceInput = document.getElementById('planet2Distance');
+      sunAttractionInput = document.getElementById('sunAttraction');
+      presenceToggleBtn = document.getElementById('presenceToggle');
+      presenceToggleLabel = document.getElementById('presenceToggleLabel');
+      controlRangeInputs = Array.from(document.querySelectorAll('#controls input[type="range"]'));
+      setupHsbWheel();
+      setupChaosButton();
+      setupControlsPanel();
+      setupPresenceToggle();
+      setupSoundToggle();
+      setupMidiControl();
+      setupGamepadControl();
+      setupChimeVoices();
+      window.addEventListener('pointerdown', unlockAudioOnce);
+      window.addEventListener('keydown', unlockAudioOnce);
+      startedAt = millis();
+    }
+
+    // 32 маленьких спрайта свечения — цвета берутся из той же радуги
+    // GLOW_COLORS, что и раньше, но каждый радиальный градиент строится
+    // ровно один раз за загрузку, а не каждый кадр на каждую точку.
+    function buildGlowSprites() {
+      glowSprites = [];
+      const R = 32;
+      const size = R * 2;
+      for (let i = 0; i < GLOW_BUCKETS; i++) {
+        const t = i / (GLOW_BUCKETS - 1);
+        const c = sampleGlowColor(t);
+        const r = red(c), g = green(c), b = blue2(c);
+        const gfx = createGraphics(size, size);
+        gfx.pixelDensity(1);
+        gfx.clear();
+        const ctx = gfx.drawingContext;
+        const grad = ctx.createRadialGradient(R, R, 0, R, R, R);
+        grad.addColorStop(0,    `rgba(${r},${g},${b},1)`);
+        grad.addColorStop(0.32, `rgba(${r},${g},${b},0.48)`);
+        grad.addColorStop(1,    `rgba(${r},${g},${b},0)`);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(R, R, R, 0, Math.PI * 2);
+        ctx.fill();
+        glowSprites.push(gfx);
+      }
+    }
+
+    // Отдельный спрайт для HSB-режима: одна одноцветная мгла, перестраивается
+    // только когда меняется оттенок или насыщенность.
+    function buildHsbGlowSprite() {
+      const R = 32;
+      const size = R * 2;
+      if (!hsbGlowSprite) {
+        hsbGlowSprite = createGraphics(size, size);
+        hsbGlowSprite.pixelDensity(1);
+      }
+      hsbGlowSprite.clear();
+      const ctx = hsbGlowSprite.drawingContext;
+      const r = Math.round(cloudMixR);
+      const g = Math.round(cloudMixG);
+      const b = Math.round(cloudMixB);
+      const grad = ctx.createRadialGradient(R, R, 0, R, R, R);
+      grad.addColorStop(0,    `rgba(${r},${g},${b},1)`);
+      grad.addColorStop(0.32, `rgba(${r},${g},${b},0.48)`);
+      grad.addColorStop(1,    `rgba(${r},${g},${b},0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(R, R, R, 0, Math.PI * 2);
+      ctx.fill();
+      hsbGlowSpriteHue = cloudHue;
+      hsbGlowSpriteSat = cloudSaturation;
+    }
+
+    function setupChimeVoices() {
+      try {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        audioCtx = new Ctx();
+        delayNode = audioCtx.createDelay(1.0);
+        delayNode.delayTime.value = 0.26;
+        delayFeedback = audioCtx.createGain();
+        delayFeedback.gain.value = 0;
+        delayWet = audioCtx.createGain();
+        delayWet.gain.value = 0;
+        delayNode.connect(delayFeedback).connect(delayNode);
+        delayNode.connect(delayWet).connect(audioCtx.destination);
+        for (let i = 0; i < CHIME_VOICES; i++) {
+          const tone = audioCtx.createOscillator();
+          const tonePartial = audioCtx.createOscillator();
+          const toneThird = audioCtx.createOscillator();
+          const toneFourth = audioCtx.createOscillator();
+          const toneFifth = audioCtx.createOscillator();
+          const toneOctave = audioCtx.createOscillator();
+          const toneGain = audioCtx.createGain();
+          const partialGain = audioCtx.createGain();
+          const thirdGain = audioCtx.createGain();
+          const fourthGain = audioCtx.createGain();
+          const fifthGain = audioCtx.createGain();
+          const octaveGain = audioCtx.createGain();
+          tone.type = 'sine';
+          tonePartial.type = 'sine';
+          toneThird.type = 'sine';
+          toneFourth.type = 'sine';
+          toneFifth.type = 'sine';
+          toneOctave.type = 'sine';
+          toneGain.gain.value = 0;
+          partialGain.gain.value = 0;
+          thirdGain.gain.value = 0;
+          fourthGain.gain.value = 0;
+          fifthGain.gain.value = 0;
+          octaveGain.gain.value = 0;
+          tone.connect(toneGain).connect(audioCtx.destination);
+          tonePartial.connect(partialGain).connect(audioCtx.destination);
+          toneThird.connect(thirdGain).connect(audioCtx.destination);
+          toneFourth.connect(fourthGain).connect(audioCtx.destination);
+          toneFifth.connect(fifthGain).connect(audioCtx.destination);
+          toneOctave.connect(octaveGain).connect(audioCtx.destination);
+          toneGain.connect(delayNode);
+          partialGain.connect(delayNode);
+          thirdGain.connect(delayNode);
+          fourthGain.connect(delayNode);
+          fifthGain.connect(delayNode);
+          octaveGain.connect(delayNode);
+          tone.start();
+          tonePartial.start();
+          toneThird.start();
+          toneFourth.start();
+          toneFifth.start();
+          toneOctave.start();
+          chimeVoices.push({
+            tone, partial: tonePartial, third: toneThird, fourth: toneFourth, fifth: toneFifth, octave: toneOctave,
+            toneGain, partialGain, thirdGain, fourthGain, fifthGain, octaveGain
+          });
+        }
+      } catch (err) {
+        chimeVoices = [];
+      }
+    }
+
+    function unlockAudioOnce() {
+      window.removeEventListener('pointerdown', unlockAudioOnce);
+      window.removeEventListener('keydown', unlockAudioOnce);
+      try {
+        if (audioCtx) audioCtx.resume().then(() => {
+          audioReady = true;
+          updateSoundToggleUI();
+        });
+      } catch (err) {}
+    }
+
+    function ringChimeGain(gainParam, peak, now) {
+      gainParam.cancelScheduledValues(now);
+      gainParam.setValueAtTime(gainParam.value, now);
+      gainParam.linearRampToValueAtTime(peak, now + CHIME_ATTACK);
+      gainParam.linearRampToValueAtTime(0, now + CHIME_ATTACK + CHIME_DECAY);
+    }
+
+    function triggerGlassChime(strength) {
+      if (!soundOutputEnabled) return;
+      if (!audioReady || !chimeVoices.length) return;
+      try {
+        const voice = chimeVoices[nextChimeVoice];
+        nextChimeVoice = (nextChimeVoice + 1) % chimeVoices.length;
+        const freqPos = readControl(frequencyInput, 15) / 100;
+        const baseFreq = CHIME_FREQ_AT_0 * Math.pow(CHIME_FREQ_AT_100 / CHIME_FREQ_AT_0, freqPos);
+        const ratio = random(CHIME_PARTIAL_MIN, CHIME_PARTIAL_MAX);
+        const now = audioCtx.currentTime;
+        voice.tone.frequency.setValueAtTime(baseFreq, now);
+        voice.partial.frequency.setValueAtTime(baseFreq * ratio, now);
+        const thirdFreq = baseFreq * CHIME_THIRD_RATIO;
+        voice.third.frequency.setValueAtTime(thirdFreq, now);
+        voice.fourth.frequency.setValueAtTime(thirdFreq * CHIME_FOURTH_RATIO, now);
+        voice.fifth.frequency.setValueAtTime(baseFreq * CHIME_FIFTH_RATIO, now);
+        voice.octave.frequency.setValueAtTime(baseFreq * CHIME_OCTAVE_RATIO, now);
+        const loud = constrain(strength / 2.2, 0.14, 1);
+        const volume = readControl(volumeInput, 50) / 100;
+        const peak = CHIME_PEAK * loud * volume;
+        ringChimeGain(voice.toneGain.gain, peak, now);
+        ringChimeGain(voice.partialGain.gain, peak * CHIME_PARTIAL_GAIN, now);
+        ringChimeGain(voice.thirdGain.gain, peak * CHIME_THIRD_GAIN, now);
+        ringChimeGain(voice.fourthGain.gain, peak * CHIME_FOURTH_GAIN, now);
+        ringChimeGain(voice.fifthGain.gain, peak * CHIME_FIFTH_GAIN, now);
+        ringChimeGain(voice.octaveGain.gain, peak * CHIME_OCTAVE_GAIN, now);
+        if (delayWet && delayFeedback) {
+          const delayAmount = readControl(delayInput, 0) / 100;
+          delayWet.gain.setValueAtTime(delayAmount * 0.5, now);
+          delayFeedback.gain.setValueAtTime(delayAmount > 0 ? 0.2 + delayAmount * 0.25 : 0, now);
+        }
+      } catch (err) {}
+    }
+
+    function buildCloud() {
+      pieces = [];
+      const cx = width / 2;
+      const cy = height / 2;
+      const points = [];
+
+      for (let i = 0; i < CLOUD_POINT_COUNT; i++) {
+        const angle = random(TWO_PI);
+        const r = Math.sqrt(random()) * CLOUD_RADIUS;
+        const dx = Math.cos(angle) * r;
+        const dy = Math.sin(angle) * r;
+        const distNorm = r / CLOUD_RADIUS;
+        const glowColor = sampleGlowColor(distNorm);
+        const glowBucket = Math.round(distNorm * (GLOW_BUCKETS - 1));
+
+        points.push({
+          id: nextPointId++,
+          x: dx,
+          y: dy,
+          px: cx + dx,
+          py: cy + dy,
+          vx: 0,
+          vy: 0,
+          phase: random(TWO_PI),
+          densityRank: random(),
+          linkRank: random(),
+          r: 230,
+          g: 232,
+          b: 238,
+          tigleR: red(glowColor),
+          tigleG: green(glowColor),
+          tigleB: blue2(glowColor),
+          glowBucket: glowBucket,
+          a: 0,
+          reveal: distNorm * 0.72,
+          tone: random(),
+          flashUntil: 0
+        });
+      }
+
+      pieces.push({ cx, cy, points });
+    }
+
+    function buildIntroLayers() {
+      try {
+        if (introGlyphReady && introGlyphImg) {
+          introGlyphLayer = introGlyphImg;
+        }
+      } catch (err) {
+        introGlyphLayer = null;
+      }
+    }
+
+    function draw() {
+      updatePerfScaling();
+      pollGamepads();
+      const bg = color(PALETTE.background);
+      const trail = readControl(trailInput, 10) / 100;
+      bg.setAlpha(255);
+      noStroke();
+      fill(bg);
+      rect(0, 0, width, height);
+
+      updateStars();
+      drawStars();
+
+      const elapsed = millis() - startedAt;
+      const progress = drawIntro(elapsed);
+
+      const density = 0.1 + 0.9 * (readControl(densityInput, 60) / 100);
+      const speedMul = readControl(speedInput, 100) / 100;
+      const vortex = readControl(vortexInput, 100) / 100;
+      const sphere = readControl(sphereInput, 0) / 100;
+      sphereRadiusPx = lerp(SPHERE_RADIUS_MIN, SPHERE_RADIUS_MAX, sphere);
+      const distance = readControl(distanceInput, 100) / 100;
+      const cohesion = readControl(cohesionInput, 0) / 100;
+      const screenSize = Math.sqrt(width * width + height * height);
+      const maxSpread = lerp(screenSize * DIST_MIN_SHARE, screenSize * DIST_MAX_SHARE, distance);
+      const linkShare = (readControl(linksInput, 0) / 100) * LINK_MAX_SHARE;
+      const glow = readControl(glowInput, 45) / 100;
+
+      cloudMixAmount = readControl(hsbMixInput, 0) / 100;
+      if (lastMixHue !== cloudHue || lastMixSat !== cloudSaturation) {
+        colorMode(HSB, 360, 100, 100, 255);
+        const hsbMixColor = color(cloudHue, cloudSaturation, 100);
+        colorMode(RGB, 255, 255, 255, 255);
+        cloudMixR = red(hsbMixColor);
+        cloudMixG = green(hsbMixColor);
+        cloudMixB = blue2(hsbMixColor);
+        lastMixHue = cloudHue;
+        lastMixSat = cloudSaturation;
+      }
+
+      // HSB-спрайт свечения нужен только когда микс заметный; перестраивается
+      // только при смене оттенка/насыщенности.
+      if (cloudMixAmount > 0.3 &&
+          (hsbGlowSpriteHue !== cloudHue || hsbGlowSpriteSat !== cloudSaturation)) {
+        buildHsbGlowSprite();
+      }
+
+      updatePresence(readControl(presenceInput, 0) / 100);
+      updateSun();
+      drawSun();
+      updatePlanet();
+      drawPlanet();
+      updatePlanet2();
+      drawPlanet2();
+      updateField(elapsed);
+      activePoints.length = 0;
+
+      for (const piece of pieces) {
+        updateWordPoints(piece, progress, elapsed, density, speedMul, vortex, sphere, maxSpread, cohesion);
+      }
+
+      resolveCollisions();
+      if (linkShare > 0) drawLinks(linkShare);
+      drawDots(glow, trail);
+      drawPresenceBadge();
+      updateControlValueDisplays();
+      drawPerfHud();
+    }
+
+    function drawIntro(elapsed) {
+      const t = constrain(elapsed / INTRO_MS, 0, 1);
+      const eased = t * t * (3 - 2 * t);
+      const wordT = constrain(t * WORD_DISSOLVE_SPEEDUP, 0, 1);
+      const wordEased = wordT * wordT * (3 - 2 * wordT);
+      const wordAlpha = 255 * INTRO_START_ALPHA * (1 - wordEased);
+
+      const cx = width / 2;
+      const cy = height / 2;
+      const glyphSize = INTRO_GLOW_BASE * 2;
+
+      const glowMaxRadius = Math.sqrt(width * width + height * height) / 2 + INTRO_GLOW_BASE;
+      const glowRadius = lerp(INTRO_GLOW_BASE, glowMaxRadius, eased);
+      const glowAlphaMul = INTRO_START_ALPHA * (1 - eased);
+
+      if (glowAlphaMul > 0.002) {
+        const context = drawingContext;
+        const halo = context.createRadialGradient(cx, cy, 0, cx, cy, glowRadius);
+        const stops = GLOW_COLORS.length - 1;
+        for (let i = 0; i < GLOW_COLORS.length; i++) {
+          const c = color(GLOW_COLORS[i]);
+          const stopAlpha = i === GLOW_COLORS.length - 1 ? 0 : glowAlphaMul;
+          halo.addColorStop(i / stops, `rgba(${red(c)}, ${green(c)}, ${blue2(c)}, ${stopAlpha})`);
+        }
+        noStroke();
+        context.fillStyle = halo;
+        context.beginPath();
+        context.arc(cx, cy, glowRadius, 0, TWO_PI);
+        context.fill();
+      }
+
+      if (wordAlpha > 0.5 && introGlyphLayer) {
+        push();
+        imageMode(CENTER);
+        tint(255, wordAlpha);
+        image(introGlyphLayer, cx, cy, glyphSize, glyphSize);
+        pop();
+      }
+
+      return eased;
+    }
+
+    function readControl(input, fallback) {
+      const value = input ? Number(input.value) : fallback;
+      return Number.isFinite(value) ? value : fallback;
+    }
+
+    // Значения ползунков пишутся в DOM только когда реально изменились —
+    // в покое функция не трогает страницу вовсе.
+    function updateControlValueDisplays() {
+      controlRangeInputs.forEach(input => {
+        const span = input.nextElementSibling;
+        if (!span || !span.classList.contains('control-value')) return;
+        const v = Math.round(Number(input.value));
+        if (lastControlValues[input.id] === v) return;
+        lastControlValues[input.id] = v;
+        const suffix = span.dataset.suffix || '';
+        span.textContent = v + suffix;
+      });
+    }
+
+    function updatePresence(sensitivity) {
+      const now = millis();
+      const dt = presenceAt ? Math.min(0.1, (now - presenceAt) / 1000) : 1 / 30;
+      presenceAt = now;
+      if (!presenceEnabled) {
+        stopMic();
+        soundLevel = 0;
+        vibrationEnv = 0;
+        for (const z in zones) zones[z] = 0;
+        updatePresenceToggleUI();
+        return;
+      }
+      ensureMic();
+      let energy = 0;
+      if (micReady && analyser && micData) {
+        analyser.getByteTimeDomainData(micData);
+        let sumSquares = 0;
+        for (let i = 0; i < micData.length; i++) {
+          const v = (micData[i] - 128) / 128;
+          sumSquares += v * v;
+        }
+        const rms = Math.sqrt(sumSquares / micData.length);
+        energy = constrain(rms * 7, 0, 1);
+      }
+      soundLevel = lerp(soundLevel, energy, 0.35);
+      zones.head = lerp(zones.head, soundLevel, 0.45);
+      zones.torso = lerp(zones.torso, soundLevel, 0.3);
+      zones.left = lerp(zones.left, soundLevel, 0.22);
+      zones.right = lerp(zones.right, soundLevel, 0.18);
+      const boost = 1 + sensitivity * 3;
+      const drive = constrain(soundLevel * boost, 0, 1);
+      // Затухание вибрации привязано ко времени, а не к кадру: на просадке
+      // fps облако затухает с той же скоростью, что и на стабильных 30.
+      const decay = Math.pow(0.72, dt * 30);
+      if (drive > vibrationEnv) vibrationEnv = drive;
+      else vibrationEnv *= decay;
+      updatePresenceToggleUI();
+    }
+
+    function updateSun() {
+      const t = readControl(sunAttractionInput, 0) / 100;
+      sunMassRatio = t * (SUN_MASS_KG / MOON_MASS_KG);
+      sunRadiusPx = lerp(SUN_RADIUS_MIN, SUN_RADIUS_MAX, t);
+    }
+
+    function drawSun() {
+      const context = drawingContext;
+      const sx = width / 2;
+      const sy = height / 2;
+      const c = color(PALETTE.orange);
+      const r = red(c);
+      const g = green(c);
+      const b = blue2(c);
+      const haloRadius = sunRadiusPx * 6;
+      const halo = context.createRadialGradient(sx, sy, 0, sx, sy, haloRadius);
+      halo.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.75)`);
+      halo.addColorStop(0.25, `rgba(${r}, ${g}, ${b}, 0.32)`);
+      halo.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+      noStroke();
+      context.fillStyle = halo;
+      context.beginPath();
+      context.arc(sx, sy, haloRadius, 0, TWO_PI);
+      context.fill();
+      fill(PALETTE.light);
+      circle(sx, sy, sunRadiusPx * 2);
+    }
+
+    function updatePlanet() {
+      const now = millis();
+      const dt = planetAt ? Math.min(0.1, (now - planetAt) / 1000) : 1 / 30;
+      planetAt = now;
+      const massT = readControl(planetMassInput, 0) / 100;
+      const speedT = readControl(planetSpeedInput, 0) / 100;
+      const distT = readControl(planetDistanceInput, 0) / 100;
+      planetMassRatio = Math.pow(SATURN_MASS_KG / MOON_MASS_KG, massT) * 5;
+      planetDistanceRatio = lerp(1, 100, distT);
+      const speedMultiplier = lerp(1, 100, speedT);
+      const angularSpeed = (TWO_PI / MOON_ORBIT_PERIOD_S) * speedMultiplier;
+      planetAngle += angularSpeed * dt;
+      const rx = lerp(PLANET_ORBIT_RX, PLANET_ORBIT_RX * PLANET_ORBIT_GROWTH, distT);
+      const ry = lerp(PLANET_ORBIT_RY, PLANET_ORBIT_RY * PLANET_ORBIT_GROWTH, distT);
+      planetX = width / 2 + Math.cos(planetAngle) * rx;
+      planetY = height / 2 + Math.sin(planetAngle) * ry;
+      planetRadiusPx = lerp(PLANET_RADIUS_MIN, PLANET_RADIUS_MAX, Math.sqrt(massT));
+      planetDepthZ = Math.sin(planetAngle) * PLANET_DEPTH_TILT;
+      planetScale = DEPTH_FOCAL / (DEPTH_FOCAL + planetDepthZ);
+    }
+
+    function drawPlanet() {
+      const context = drawingContext;
+      const c = color(PALETTE.blue);
+      const r = red(c);
+      const g = green(c);
+      const b = blue2(c);
+      const sx = width / 2 + (planetX - width / 2) * planetScale;
+      const sy = height / 2 + (planetY - height / 2) * planetScale;
+      const radiusPx = planetRadiusPx * planetScale;
+      const haloRadius = radiusPx * 3.4;
+      const halo = context.createRadialGradient(sx, sy, 0, sx, sy, haloRadius);
+      halo.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.55)`);
+      halo.addColorStop(0.35, `rgba(${r}, ${g}, ${b}, 0.22)`);
+      halo.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+      noStroke();
+      context.fillStyle = halo;
+      context.beginPath();
+      context.arc(sx, sy, haloRadius, 0, TWO_PI);
+      context.fill();
+      fill(c);
+      circle(sx, sy, radiusPx * 2);
+    }
+
+    function updatePlanet2() {
+      const now = millis();
+      const dt = planet2At ? Math.min(0.1, (now - planet2At) / 1000) : 1 / 30;
+      planet2At = now;
+      const massT = readControl(planet2MassInput, 0) / 100;
+      const speedT = readControl(planet2SpeedInput, 0) / 100;
+      const distT = readControl(planet2DistanceInput, 0) / 100;
+      planet2MassRatio = Math.pow(SATURN_MASS_KG / MOON_MASS_KG, massT) * 5;
+      planet2DistanceRatio = lerp(1, 100, distT);
+      const speedMultiplier = lerp(1, 100, speedT);
+      const angularSpeed = (TWO_PI / MOON_ORBIT_PERIOD_S) * speedMultiplier;
+      planet2Angle += angularSpeed * dt;
+      const rx = lerp(PLANET2_ORBIT_RX, PLANET2_ORBIT_RX * PLANET_ORBIT_GROWTH, distT);
+      const ry = lerp(PLANET2_ORBIT_RY, PLANET2_ORBIT_RY * PLANET_ORBIT_GROWTH, distT);
+      planet2X = width / 2 + Math.cos(planet2Angle) * rx;
+      planet2Y = height / 2 + Math.sin(planet2Angle) * ry;
+      planet2RadiusPx = lerp(PLANET_RADIUS_MIN, PLANET_RADIUS_MAX, Math.sqrt(massT));
+      planet2DepthZ = Math.sin(planet2Angle + Math.PI / 3) * PLANET2_DEPTH_TILT;
+      planet2Scale = DEPTH_FOCAL / (DEPTH_FOCAL + planet2DepthZ);
+    }
+
+    function drawPlanet2() {
+      const context = drawingContext;
+      const c = color('#ff4438');
+      const r = red(c);
+      const g = green(c);
+      const b = blue2(c);
+      const sx = width / 2 + (planet2X - width / 2) * planet2Scale;
+      const sy = height / 2 + (planet2Y - height / 2) * planet2Scale;
+      const radiusPx = planet2RadiusPx * planet2Scale;
+      const haloRadius = radiusPx * 3.4;
+      const halo = context.createRadialGradient(sx, sy, 0, sx, sy, haloRadius);
+      halo.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.55)`);
+      halo.addColorStop(0.35, `rgba(${r}, ${g}, ${b}, 0.22)`);
+      halo.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+      noStroke();
+      context.fillStyle = halo;
+      context.beginPath();
+      context.arc(sx, sy, haloRadius, 0, TWO_PI);
+      context.fill();
+      fill(c);
+      circle(sx, sy, radiusPx * 2);
+    }
+
+    function ensureMic() {
+      if (micStream || micRequesting) return;
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+      micRequesting = true;
+      navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+        .then(stream => {
+          micRequesting = false;
+          if (!presenceEnabled) {
+            stream.getTracks().forEach(track => track.stop());
+            return;
+          }
+          if (!audioCtx) {
+            const Ctx = window.AudioContext || window.webkitAudioContext;
+            audioCtx = Ctx ? new Ctx() : null;
+          }
+          if (!audioCtx) {
+            stream.getTracks().forEach(track => track.stop());
+            return;
+          }
+          micStream = stream;
+          micSource = audioCtx.createMediaStreamSource(stream);
+          analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 1024;
+          micData = new Uint8Array(analyser.fftSize);
+          micSource.connect(analyser);
+          micReady = true;
+        })
+        .catch(() => {
+          micRequesting = false;
+          micReady = false;
+        });
+    }
+
+    function stopMic() {
+      if (micStream) micStream.getTracks().forEach(track => track.stop());
+      if (micSource) micSource.disconnect();
+      if (analyser) analyser.disconnect();
+      micStream = null;
+      micSource = null;
+      analyser = null;
+      micData = null;
+      micReady = false;
+    }
+
+    function buildField() {
+      const cols = Math.ceil(width / FIELD_CELL) + 1;
+      const rows = Math.ceil(height / FIELD_CELL) + 1;
+      field = {
+        cols,
+        rows,
+        phi: new Float32Array(cols * rows),
+        vx: new Float32Array(cols * rows),
+        vy: new Float32Array(cols * rows),
+        region: new Float32Array(cols * rows)
+      };
+    }
+
+    function buildStars() {
+      stars = [];
+      for (let i = 0; i < STAR_COUNT; i++) {
+        const star = {
+          x: random(-STAR_FIELD_SPREAD, STAR_FIELD_SPREAD),
+          y: random(-STAR_FIELD_SPREAD, STAR_FIELD_SPREAD),
+          z: random(STAR_NEAR_Z, STAR_FAR_Z),
+          speedMul: random(STAR_SPEED_MUL_MIN, STAR_SPEED_MUL_MAX),
+          prevSx: 0,
+          prevSy: 0
+        };
+        const scale = DEPTH_FOCAL / (DEPTH_FOCAL + star.z);
+        star.prevSx = width / 2 + star.x * scale;
+        star.prevSy = height / 2 + star.y * scale;
+        stars.push(star);
+      }
+    }
+
+    function updateStars() {
+      const now = millis();
+      const dt = starsAt ? Math.min(0.1, (now - starsAt) / 1000) : 1 / 30;
+      starsAt = now;
+      const starSpeedT = readControl(starSpeedInput, 0) / 100;
+      const forwardMul = lerp(1, 2, readControl(starForwardInput, 0) / 100);
+      const flightSpeed = STAR_FLIGHT_SPEED * lerp(1, 10, starSpeedT) * forwardMul;
+      const spinSpeed = STAR_SPIN_MAX_SPEED * (readControl(starSpinInput, 0) / 100);
+      const cosOld = Math.cos(starSpinAngle);
+      const sinOld = Math.sin(starSpinAngle);
+      starSpinAngle += spinSpeed * dt;
+      const cosNew = Math.cos(starSpinAngle);
+      const sinNew = Math.sin(starSpinAngle);
+      for (const star of stars) {
+        const scale = DEPTH_FOCAL / (DEPTH_FOCAL + star.z);
+        const rx = star.x * cosOld - star.y * sinOld;
+        const ry = star.x * sinOld + star.y * cosOld;
+        star.prevSx = width / 2 + rx * scale;
+        star.prevSy = height / 2 + ry * scale;
+        star.z -= flightSpeed * star.speedMul * dt;
+        if (star.z <= STAR_NEAR_Z) {
+          star.x = random(-STAR_FIELD_SPREAD, STAR_FIELD_SPREAD);
+          star.y = random(-STAR_FIELD_SPREAD, STAR_FIELD_SPREAD);
+          star.z = random(STAR_FAR_Z * 0.75, STAR_FAR_Z);
+          star.speedMul = random(STAR_SPEED_MUL_MIN, STAR_SPEED_MUL_MAX);
+          const freshScale = DEPTH_FOCAL / (DEPTH_FOCAL + star.z);
+          const frx = star.x * cosNew - star.y * sinNew;
+          const fry = star.x * sinNew + star.y * cosNew;
+          star.prevSx = width / 2 + frx * freshScale;
+          star.prevSy = height / 2 + fry * freshScale;
+        }
+      }
+    }
+
+    function drawStarSegment(context, x1, y1, x2, y2, r, g, b, alpha, lineWidth) {
+      const gradient = context.createLinearGradient(x1, y1, x2, y2);
+      gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0)`);
+      gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, ${alpha})`);
+      context.strokeStyle = gradient;
+      context.lineWidth = lineWidth;
+      context.lineCap = 'round';
+      context.beginPath();
+      context.moveTo(x1, y1);
+      context.lineTo(x2, y2);
+      context.stroke();
+    }
+
+    const STAR_TAIL_MAX_PX = 400;
+    const STAR_SIMPLIFY_ABOVE = 0.45;
+    const STAR_THIN_ABOVE = 0.7;
+    const STAR_CULL_MARGIN = 50;
+    
+    function drawStars() {
+      if (starEnabledInput && !starEnabledInput.checked) return;
+      const context = drawingContext;
+      const base = color(PALETTE.muted);
+      const bright = color(PALETTE.light);
+      const contrastMul = lerp(1, 2, readControl(starContrastInput, 0) / 100);
+      const dimAlpha = lerp(36, 255, readControl(starBrightnessInput, 0) / 100);
+      const cosA = Math.cos(starSpinAngle);
+      const sinA = Math.sin(starSpinAngle);
+      const tailShare = readControl(starSpeedInput, 0) / 100;
+      for (const star of stars) {
+        const scale = DEPTH_FOCAL / (DEPTH_FOCAL + star.z);
+        const rx = star.x * cosA - star.y * sinA;
+        const ry = star.x * sinA + star.y * cosA;
+        const sx = width / 2 + rx * scale;
+        const sy = height / 2 + ry * scale;
+        const stretchedTailX = sx + (star.prevSx - sx) * STAR_TAIL_STRETCH;
+        const stretchedTailY = sy + (star.prevSy - sy) * STAR_TAIL_STRETCH;
+        const tailX = lerp(stretchedTailX, width / 2, tailShare);
+        const tailY = lerp(stretchedTailY, height / 2, tailShare);
+        const depthT = constrain(1 - star.z / STAR_FAR_Z, 0, 1);
+        const c = lerpColor(base, bright, depthT);
+        const alpha = Math.min(255, dimAlpha + depthT * 190 * contrastMul);
+        const r = red(c);
+        const g = green(c);
+        const b = blue2(c);
+        const lineWidth = (0.6 + depthT * 1.4 * contrastMul) * scale * 1.5;
+        const dx = sx - tailX;
+        const dy = sy - tailY;
+        const segLen = Math.sqrt(dx * dx + dy * dy) || 1;
+        const nx = -dy / segLen;
+        const ny = dx / segLen;
+        const shadeOffset = lineWidth * 0.55;
+        const shadowColor = lerpColor(c, color(PALETTE.background), 0.6);
+        const highlightColor = lerpColor(c, color(PALETTE.light), 0.65);
+        drawStarSegment(
+          context,
+          tailX - nx * shadeOffset, tailY - ny * shadeOffset,
+          sx - nx * shadeOffset, sy - ny * shadeOffset,
+          red(shadowColor), green(shadowColor), blue2(shadowColor),
+          (alpha / 255) * 0.7, lineWidth * 0.75
+        );
+        drawStarSegment(context, tailX, tailY, sx, sy, r, g, b, alpha / 255, lineWidth);
+        drawStarSegment(
+          context,
+          tailX + nx * shadeOffset, tailY + ny * shadeOffset,
+          sx + nx * shadeOffset, sy + ny * shadeOffset,
+          red(highlightColor), green(highlightColor), blue2(highlightColor),
+          (alpha / 255) * 0.6, lineWidth * 0.5
+        );
+      }
+      noStroke();
+    }
+
+    // Поле шума пересчитывается через кадр — оно всё равно меняется медленно,
+    // а 1250 вызовов noise() за кадр это заметная доля нагрузки.
+    function updateField(elapsed) {
+      if (fieldFrame % 2 !== 0) {
+        fieldFrame++;
+        return;
+      }
+      fieldFrame++;
+      const t = elapsed * 0.00005;
+      const { cols, rows, phi, vx, vy, region } = field;
+      for (let j = 0; j < rows; j++) {
+        for (let i = 0; i < cols; i++) {
+          phi[i + j * cols] = noise(i * FIELD_WAVE, j * FIELD_WAVE, t);
+          region[i + j * cols] = noise(i * FIELD_WAVE * 0.6 + 300, j * FIELD_WAVE * 0.6 + 300, t * 0.6);
+        }
+      }
+      let regionMin = 1;
+      let regionMax = 0;
+      for (let k = 0; k < cols * rows; k++) {
+        if (region[k] < regionMin) regionMin = region[k];
+        if (region[k] > regionMax) regionMax = region[k];
+      }
+      const regionSpan = Math.max(regionMax - regionMin, 0.0001);
+      for (let k = 0; k < cols * rows; k++) {
+        region[k] = (region[k] - regionMin) / regionSpan;
+      }
+      let maxMag = 0.0001;
+      for (let j = 0; j < rows; j++) {
+        const jm = Math.max(j - 1, 0);
+        const jp = Math.min(j + 1, rows - 1);
+        for (let i = 0; i < cols; i++) {
+          const im = Math.max(i - 1, 0);
+          const ip = Math.min(i + 1, cols - 1);
+          const dx = phi[ip + j * cols] - phi[im + j * cols];
+          const dy = phi[i + jp * cols] - phi[i + jm * cols];
+          const k = i + j * cols;
+          vx[k] = dy;
+          vy[k] = -dx;
+          const mag = Math.sqrt(dy * dy + dx * dx);
+          if (mag > maxMag) maxMag = mag;
+        }
+      }
+      const targetGain = MAX_SPEED / maxMag;
+      fieldGain = fieldGain === 0 ? targetGain : lerp(fieldGain, targetGain, 0.06);
+    }
+
+    function sampleField(x, y, out) {
+      const { cols, rows, vx, vy, region } = field;
+      const fx = constrain(x / FIELD_CELL, 0, cols - 1.001);
+      const fy = constrain(y / FIELD_CELL, 0, rows - 1.001);
+      const i = Math.floor(fx);
+      const j = Math.floor(fy);
+      const u = fx - i;
+      const v = fy - j;
+      const k00 = i + j * cols;
+      const k10 = k00 + 1;
+      const k01 = k00 + cols;
+      const k11 = k01 + 1;
+      const w00 = (1 - u) * (1 - v);
+      const w10 = u * (1 - v);
+      const w01 = (1 - u) * v;
+      const w11 = u * v;
+      out.vx = (vx[k00] * w00 + vx[k10] * w10 + vx[k01] * w01 + vx[k11] * w11) * fieldGain;
+      out.vy = (vy[k00] * w00 + vy[k10] * w10 + vy[k01] * w01 + vy[k11] * w11) * fieldGain;
+      out.region = region[k00] * w00 + region[k10] * w10 + region[k01] * w01 + region[k11] * w11;
+    }
+
+    const fieldSample = { vx: 0, vy: 0, region: 0 };
+    const blue2 = c => blue(c);
+
+    function updateWordPoints(piece, progress, elapsed, density, speedMul, vortex, sphere, maxSpread, cohesion) {
+      if (progress <= 0) return;
+      const breathTime = elapsed * 0.00115;
+      const flow = progress * progress * (3 - 2 * progress);
+
+      // Общие множители сил притяжения вынесены за цикл по точкам —
+      // раньше эти три деления считались на каждую из 5200 точек.
+      const planetPullK  = (PLANET_PULL_BASE * planetMassRatio)  /
+                            (planetDistanceRatio  * planetDistanceRatio);
+      const planet2PullK = (PLANET_PULL_BASE * planet2MassRatio) /
+                            (planet2DistanceRatio * planet2DistanceRatio);
+      const sunPullK     = SUN_PULL_BASE * sunMassRatio;
+      const hasSun       = sunMassRatio > 0;
+
+      liveScratch.length = 0;
+      for (const point of piece.points) {
+        if (point.densityRank > density) continue;
+
+        const local = constrain((progress - point.reveal * 0.42) / 0.58, 0, 1);
+        if (local <= 0) continue;
+
+        if (flow > 0) {
+          sampleField(point.px, point.py, fieldSample);
+          let targetVx = fieldSample.vx;
+          let targetVy = fieldSample.vy;
+          if (vortex > 0) {
+            if (point.orbitPhase === undefined) point.orbitPhase = point.phase;
+            const radiusX = 440 + (point.tone - 0.5) * 90;
+            const radiusY = 220 + (point.densityRank - 0.5) * 60;
+            const theta = point.orbitPhase;
+            const tangentX = radiusX * Math.cos(theta);
+            const tangentY = 2 * radiusY * Math.cos(2 * theta);
+            const tangentLen = Math.sqrt(tangentX * tangentX + tangentY * tangentY);
+            const angularSpeed = 0.9 / Math.max(1, tangentLen);
+            const targetX = width / 2 + radiusX * Math.sin(theta);
+            const targetY = height / 2 + radiusY * Math.sin(2 * theta);
+            const orbitVx = tangentX * angularSpeed + (targetX - point.px) * 0.018;
+            const orbitVy = tangentY * angularSpeed + (targetY - point.py) * 0.018;
+            targetVx = lerp(targetVx, orbitVx, vortex);
+            targetVy = lerp(targetVy, orbitVy, vortex);
+            point.orbitPhase += angularSpeed * flow * speedMul * vortex;
+          }
+          if (sphere > 0) {
+            if (point.sphereTheta === undefined) point.sphereTheta = point.phase;
+            if (point.spherePhi === undefined) point.spherePhi = point.tone * Math.PI * 2;
+            if (point.spherePhiRate === undefined) point.spherePhiRate = random(SPHERE_PHI_RATE_MIN, SPHERE_PHI_RATE_MAX);
+            const theta = point.sphereTheta;
+            const phi = point.spherePhi;
+            const sinPhi = Math.sin(phi);
+            const sphereX = sphereRadiusPx * sinPhi * Math.cos(theta);
+            const sphereY = sphereRadiusPx * sinPhi * Math.sin(theta);
+            const tangentSphereX = -sphereRadiusPx * sinPhi * Math.sin(theta);
+            const tangentSphereY = sphereRadiusPx * sinPhi * Math.cos(theta);
+            const targetSphereX = width / 2 + sphereX;
+            const targetSphereY = height / 2 + sphereY;
+            const sphereOrbitVx = tangentSphereX * SPHERE_ANGULAR_SPEED + (targetSphereX - point.px) * 0.02;
+            const sphereOrbitVy = tangentSphereY * SPHERE_ANGULAR_SPEED + (targetSphereY - point.py) * 0.02;
+            targetVx = lerp(targetVx, sphereOrbitVx, sphere);
+            targetVy = lerp(targetVy, sphereOrbitVy, sphere);
+            point.sphereTheta += SPHERE_ANGULAR_SPEED * flow * speedMul * sphere;
+            point.spherePhi += SPHERE_PHI_SPEED * point.spherePhiRate * flow * speedMul * sphere;
+            point.sphereDepth = sphereRadiusPx * Math.cos(phi);
+            point.sphereRadiusXY = sphereRadiusPx * sinPhi;
+          }
+          if (cohesion > 0) {
+            const dxHome = piece.cx - point.px;
+            const dyHome = piece.cy - point.py;
+            const distHome = Math.sqrt(dxHome * dxHome + dyHome * dyHome);
+            if (distHome > 1) {
+              const pullMag = Math.min(distHome * COHESION_RATE, COHESION_MAX_PULL) * cohesion;
+              targetVx += (dxHome / distHome) * pullMag;
+              targetVy += (dyHome / distHome) * pullMag;
+            }
+          }
+          point.vx = lerp(point.vx, targetVx * flow * speedMul, 0.08);
+          point.vy = lerp(point.vy, targetVy * flow * speedMul, 0.08);
+          if (vortex > 0 || sphere > 0) {
+            const vlen = Math.sqrt(point.vx * point.vx + point.vy * point.vy);
+            const limit = Math.min(1, 2.7 / Math.max(0.001, vlen));
+            point.vx *= limit;
+            point.vy *= limit;
+          }
+          point.px += point.vx;
+          point.py += point.vy;
+          if (vibrationEnv > 0.02) {
+            const amp = vibrationEnv * VIBRATION_AMP;
+            const t = elapsed * VIBRATION_SPEED + point.phase;
+            point.px += Math.sin(t) * amp;
+            point.py += Math.cos(t * 1.37 + point.phase) * amp;
+          }
+          {
+            const pdx = planetX - point.px;
+            const pdy = planetY - point.py;
+            const pDistSq = pdx * pdx + pdy * pdy + PLANET_SOFTEN * PLANET_SOFTEN;
+            const pDist = Math.sqrt(pDistSq);
+            const pullMag = Math.min(planetPullK / pDistSq, PLANET_PULL_MAX);
+            point.px += (pdx / pDist) * pullMag;
+            point.py += (pdy / pDist) * pullMag;
+          }
+          {
+            const p2dx = planet2X - point.px;
+            const p2dy = planet2Y - point.py;
+            const p2DistSq = p2dx * p2dx + p2dy * p2dy + PLANET_SOFTEN * PLANET_SOFTEN;
+            const p2Dist = Math.sqrt(p2DistSq);
+            const p2PullMag = Math.min(planet2PullK / p2DistSq, PLANET_PULL_MAX);
+            point.px += (p2dx / p2Dist) * p2PullMag;
+            point.py += (p2dy / p2Dist) * p2PullMag;
+          }
+          if (hasSun) {
+            const sdx = width / 2 - point.px;
+            const sdy = height / 2 - point.py;
+            const sDistSq = sdx * sdx + sdy * sdy + SUN_SOFTEN * SUN_SOFTEN;
+            const sDist = Math.sqrt(sDistSq);
+            const sPullMag = Math.min(sunPullK / sDistSq, SUN_PULL_MAX);
+            point.px += (sdx / sDist) * sPullMag;
+            point.py += (sdy / sDist) * sPullMag;
+          }
+          if (point.px < -4) point.px += width + 8;
+          if (point.px > width + 4) point.px -= width + 8;
+          if (point.py < -4) point.py += height + 8;
+          if (point.py > height + 4) point.py -= height + 8;
+
+          if (sphere > 0 && point.sphereRadiusXY !== undefined) {
+            const sLockDx = point.px - width / 2;
+            const sLockDy = point.py - height / 2;
+            const sLockDist = Math.sqrt(sLockDx * sLockDx + sLockDy * sLockDy) || 1;
+            const sLockedDist = lerp(sLockDist, point.sphereRadiusXY, sphere);
+            point.px = width / 2 + (sLockDx / sLockDist) * sLockedDist;
+            point.py = height / 2 + (sLockDy / sLockDist) * sLockedDist;
+          }
+
+          point._region = fieldSample.region;
+        } else {
+          point._region = 0.5;
+        }
+
+        liveScratch.push(point);
+      }
+
+      if (flow > 0 && liveScratch.length > 1) {
+        let centerX = 0;
+        let centerY = 0;
+        for (const point of liveScratch) {
+          centerX += point.px;
+          centerY += point.py;
+        }
+        centerX /= liveScratch.length;
+        centerY /= liveScratch.length;
+
+        for (const point of liveScratch) {
+          const fromCenterX = point.px - centerX;
+          const fromCenterY = point.py - centerY;
+          const distFromCenter = Math.sqrt(fromCenterX * fromCenterX + fromCenterY * fromCenterY);
+          if (distFromCenter > maxSpread) {
+            const scale = maxSpread / distFromCenter;
+            point.px = centerX + fromCenterX * scale;
+            point.py = centerY + fromCenterY * scale;
+            const nx = fromCenterX / distFromCenter;
+            const ny = fromCenterY / distFromCenter;
+            const outward = point.vx * nx + point.vy * ny;
+            if (outward > 0) {
+              point.vx -= outward * nx;
+              point.vy -= outward * ny;
+            }
+          }
+        }
+      }
+
+      for (const point of liveScratch) {
+        const local = constrain((progress - point.reveal * 0.42) / 0.58, 0, 1);
+        const reveal = local * local * (3 - 2 * local);
+
+        point.r = lerp(point.tigleR, cloudMixR, cloudMixAmount);
+        point.g = lerp(point.tigleG, cloudMixG, cloudMixAmount);
+        point.b = lerp(point.tigleB, cloudMixB, cloudMixAmount);
+        point.a = (185 + 30 * Math.sin(breathTime * 0.7 + point.phase)) * reveal;
+        point.breathe = 0.96 + Math.sin(breathTime + point.phase) * 0.08;
+        const breatheDepthZ = Math.sin(elapsed * POINT_DEPTH_SPEED + point.phase * 1.7) * POINT_DEPTH_AMPLITUDE;
+        point.depthZ = point.sphereDepth !== undefined ? lerp(breatheDepthZ, point.sphereDepth, sphere) : breatheDepthZ;
+        point.scale = DEPTH_FOCAL / (DEPTH_FOCAL + point.depthZ);
+        activePoints.push(point);
+      }
+    }
+
+    function resolveCollisions() {
+      collideGrid.clear();
+      for (const point of activePoints) {
+        const gx = Math.floor(point.px / COLLIDE_CELL);
+        const gy = Math.floor(point.py / COLLIDE_CELL);
+        const key = gx * 4096 + gy;
+        const bucket = collideGrid.get(key);
+        if (bucket) bucket.push(point);
+        else collideGrid.set(key, [point]);
+      }
+
+      const now = millis();
+
+      for (const point of activePoints) {
+        const gx = Math.floor(point.px / COLLIDE_CELL);
+        const gy = Math.floor(point.py / COLLIDE_CELL);
+
+        for (let ox = -1; ox <= 1; ox++) {
+          for (let oy = -1; oy <= 1; oy++) {
+            const bucket = collideGrid.get((gx + ox) * 4096 + gy + oy);
+            if (!bucket) continue;
+
+            for (const other of bucket) {
+              if (other.id <= point.id) continue;
+
+              let dx = other.px - point.px;
+              let dy = other.py - point.py;
+              let dist = Math.sqrt(dx * dx + dy * dy);
+              if (dist >= COLLIDE_DIST) continue;
+
+              if (dist < 0.0001) {
+                const angle = random(TWO_PI);
+                dx = Math.cos(angle);
+                dy = Math.sin(angle);
+                dist = 1;
+              }
+              const nx = dx / dist;
+              const ny = dy / dist;
+
+              const rvx = other.vx - point.vx;
+              const rvy = other.vy - point.vy;
+              const closingSpeed = -(rvx * nx + rvy * ny);
+              if (closingSpeed <= 0) continue;
+
+              point.vx -= closingSpeed * nx;
+              point.vy -= closingSpeed * ny;
+              other.vx += closingSpeed * nx;
+              other.vy += closingSpeed * ny;
+
+              const overlap = (COLLIDE_DIST - dist) / 2;
+              point.px -= nx * overlap;
+              point.py -= ny * overlap;
+              other.px += nx * overlap;
+              other.py += ny * overlap;
+
+              point.flashUntil = now + FLASH_MS;
+              other.flashUntil = now + FLASH_MS;
+
+              if (now - lastChimeAt >= CHIME_MIN_GAP_MS) {
+                triggerGlassChime(closingSpeed);
+                lastChimeAt = now;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Волна в правом нижнем углу — отклик на громкость микрофона.
+    function drawPresenceBadge() {
+      if (!presenceEnabled || !micStream) return;
+      const x0 = width - 64;
+      const y0 = height - 92;
+      const base = color(PALETTE.muted);
+      const hot = color(PALETTE.orange);
+      const c = lerpColor(base, hot, constrain(soundLevel, 0, 1));
+      c.setAlpha(110 + 145 * constrain(soundLevel, 0, 1));
+
+      const waveHalfWidth = 44;
+      const step = 3;
+      const t = millis() * 0.006;
+      const amp = 2 + soundLevel * 20;
+
+      push();
+      noFill();
+      stroke(c);
+      strokeWeight(2);
+      strokeCap(ROUND);
+      beginShape();
+      for (let x = -waveHalfWidth; x <= waveHalfWidth; x += step) {
+        const u = x / waveHalfWidth;
+        const envelope = Math.cos(u * Math.PI / 2);
+        const y = Math.sin(u * 6 + t) * amp * envelope;
+        vertex(x0 + x, y0 + y);
+      }
+      endShape();
+      pop();
+    }
+
+    function drawDots(glow, trail) {
+      noStroke();
+      const context = drawingContext;
+      const now = millis();
+      // Выбираем спрайт свечения один раз на кадр — в HSB-режиме цвет
+      // облака общий, а не свой у каждой точки, так что хватает одного.
+      const useHsbSprite = cloudMixAmount > 0.3 && hsbGlowSprite;
+
+      for (const point of activePoints) {
+        const flashing = point.flashUntil > now;
+        const r = flashing ? 255 : point.r;
+        const g = flashing ? 255 : point.g;
+        const b = flashing ? 255 : point.b;
+        const a = flashing ? 255 : point.a;
+        const scale = point.scale;
+        const sx = width / 2 + (point.px - width / 2) * scale;
+        const sy = height / 2 + (point.py - height / 2) * scale;
+
+        if (trail > 0) {
+          const length = 72 * trail;
+          const tx = width / 2 + (point.px - point.vx * length - width / 2) * scale;
+          const ty = height / 2 + (point.py - point.vy * length - height / 2) * scale;
+          stroke(r, g, b, a * trail * 0.42);
+          strokeWeight(DOT_SIZE * point.breathe * scale * (0.55 + trail * 0.25));
+          line(sx, sy, tx, ty);
+          noStroke();
+        }
+        if (glow > 0) {
+          const radius = lerp(DOT_SIZE * 0.9, 10, glow) * point.breathe * scale * (flashing ? 1.6 : 1);
+          const alpha = a * glow * (flashing ? 0.32 : 0.18) / 255;
+          const sprite = useHsbSprite ? hsbGlowSprite : glowSprites[point.glowBucket];
+          if (sprite) {
+            context.globalAlpha = alpha;
+            context.drawImage(sprite.canvas, sx - radius, sy - radius, radius * 2, radius * 2);
+            context.globalAlpha = 1;
+          }
+        }
+        fill(r, g, b, a);
+        circle(sx, sy, DOT_SIZE * point.breathe * scale * (flashing ? 1.3 : 1));
+      }
+    }
+
+    function setupHsbWheel() {
+      const wheel = document.getElementById('hsbWheel');
+      const dot = document.getElementById('hsbDot');
+      if (!wheel || !dot) return;
+
+      const placeDot = () => {
+        const angle = radians(cloudHue - 90);
+        const radius = (cloudSaturation / 100) * 18;
+        dot.style.left = `${22 + Math.cos(angle) * radius}px`;
+        dot.style.top = `${22 + Math.sin(angle) * radius}px`;
+        wheel.setAttribute('aria-valuetext', `оттенок ${Math.round(cloudHue)}, насыщенность ${Math.round(cloudSaturation)}`);
+      };
+      placeHsbDot = placeDot;
+
+      const chooseColor = event => {
+        const rect = wheel.getBoundingClientRect();
+        const dx = event.clientX - rect.left - rect.width / 2;
+        const dy = event.clientY - rect.top - rect.height / 2;
+        const radius = Math.min(Math.sqrt(dx * dx + dy * dy), rect.width / 2);
+        cloudSaturation = (radius / (rect.width / 2)) * 100;
+        cloudHue = (degrees(Math.atan2(dy, dx)) + 90 + 360) % 360;
+        placeDot();
+      };
+
+      wheel.addEventListener('pointerdown', event => {
+        wheel.setPointerCapture(event.pointerId);
+        chooseColor(event);
+      });
+      wheel.addEventListener('pointermove', event => {
+        if (event.buttons) chooseColor(event);
+      });
+      placeDot();
+    }
+
+    function randomizeVisualization() {
+      const rangeInputs = document.querySelectorAll('#vizGroup input[type="range"]:not(#presence)');
+      rangeInputs.forEach(input => {
+        const lo = Number(input.min);
+        const hi = Number(input.max);
+        input.value = String(random(lo, hi));
+      });
+      cloudHue = random(0, 360);
+      cloudSaturation = random(0, 100);
+      if (placeHsbDot) placeHsbDot();
+    }
+
+    function setupChaosButton() {
+      const btn = document.getElementById('chaosBtn');
+      if (btn) btn.addEventListener('click', randomizeVisualization);
+    }
+
+    function setupControlsPanel() {
+      const panel = document.getElementById('controls');
+      const toggle = document.getElementById('controlsToggle');
+      if (!panel || !toggle) return;
+      toggle.addEventListener('click', () => {
+        const open = panel.classList.toggle('open');
+        toggle.textContent = open ? '✕' : '☰';
+      });
+    }
+
+    function setupPresenceToggle() {
+      if (!presenceToggleBtn) return;
+      presenceToggleBtn.addEventListener('click', () => {
+        presenceEnabled = !presenceEnabled;
+        updatePresenceToggleUI();
+      });
+      updatePresenceToggleUI();
+    }
+
+    function updatePresenceToggleUI() {
+      if (!presenceToggleBtn) return;
+      presenceToggleBtn.classList.toggle('live', !!micStream);
+      presenceToggleBtn.setAttribute('aria-pressed', presenceEnabled ? 'true' : 'false');
+      if (presenceToggleLabel) {
+        presenceToggleLabel.textContent = presenceEnabled ? 'микрофон: вкл' : 'микрофон: выкл';
+      }
+    }
+
+    function setupSoundToggle() {
+      if (!soundToggleBtn) return;
+      soundToggleBtn.addEventListener('click', () => {
+        soundOutputEnabled = !soundOutputEnabled;
+        updateSoundToggleUI();
+      });
+      updateSoundToggleUI();
+    }
+
+    function updateSoundToggleUI() {
+      if (!soundToggleBtn) return;
+      soundToggleBtn.classList.toggle('live', soundOutputEnabled && audioReady);
+      soundToggleBtn.setAttribute('aria-pressed', soundOutputEnabled ? 'true' : 'false');
+      if (soundToggleLabel) {
+        soundToggleLabel.textContent = soundOutputEnabled ? 'звук: вкл' : 'звук: выкл';
+      }
+    }
+
+    function drawLinks(linkShare) {
+      linkGrid.clear();
+      for (const point of activePoints) {
+        const key = (Math.floor(point.px / LINK_RADIUS)) * 4096 +
+          Math.floor(point.py / LINK_RADIUS);
+        const bucket = linkGrid.get(key);
+        if (bucket) bucket.push(point);
+        else linkGrid.set(key, [point]);
+      }
+
+      strokeWeight(1);
+      noFill();
+
+      for (const point of activePoints) {
+        if (point.linkRank > linkShare) continue;
+
+        const gx = Math.floor(point.px / LINK_RADIUS);
+        const gy = Math.floor(point.py / LINK_RADIUS);
+        let best = null;
+        let bestDist = 0;
+        let bestScore = Infinity;
+
+        for (let ox = -1; ox <= 1; ox++) {
+          for (let oy = -1; oy <= 1; oy++) {
+            const bucket = linkGrid.get((gx + ox) * 4096 + gy + oy);
+            if (!bucket) continue;
+            for (const other of bucket) {
+              if (other === point) continue;
+              const dx = other.px - point.px;
+              const dy = other.py - point.py;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              if (dist < LINK_MIN || dist > LINK_RADIUS) continue;
+              const score = Math.abs(dist - LINK_WANTED);
+              if (score < bestScore) {
+                bestScore = score;
+                bestDist = dist;
+                best = other;
+              }
+            }
+          }
+        }
+
+        if (!best) continue;
+        const fade = 1 - 0.55 * ((bestDist - LINK_MIN) / (LINK_RADIUS - LINK_MIN));
+        stroke(
+          (point.r + best.r) / 2,
+          (point.g + best.g) / 2,
+          (point.b + best.b) / 2,
+          Math.min(point.a, best.a) * 0.5 * fade
+        );
+        const psx = width / 2 + (point.px - width / 2) * point.scale;
+        const psy = height / 2 + (point.py - height / 2) * point.scale;
+        const bsx = width / 2 + (best.px - width / 2) * best.scale;
+        const bsy = height / 2 + (best.py - height / 2) * best.scale;
+        line(psx, psy, bsx, bsy);
+      }
+      noStroke();
+    }
+  </script>
+</body>
+</html>
