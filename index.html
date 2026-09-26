@@ -276,6 +276,22 @@
 
   <div id="controls">
     <div class="control-group">
+      <div class="group-title">лучи</div>
+      <div class="group-row">
+        <label>лучи вкл
+          <input id="raysEnabled" type="checkbox" checked />
+        </label>
+        <label>количество лучей
+          <input id="raysCount" type="range" min="0" max="100" value="60" />
+          <span class="control-value" id="raysCountValue">60</span>
+        </label>
+        <label>интенсивность лучей
+          <input id="raysIntensity" type="range" min="0" max="100" value="0" />
+          <span class="control-value" id="raysIntensityValue">0</span>
+        </label>
+      </div>
+    </div>
+    <div class="control-group">
       <div class="group-title">жизнь</div>
       <div class="group-body">
         <div class="group-row" id="vizGroup">
@@ -467,13 +483,13 @@
     const INTRO_START_ALPHA = 0.85;
 
     // Вступление: лучи из центральной точки -> ореол из 5 цветов -> растворение.
-    const RAY_COUNT = 40;
+    const RAY_COUNT_MAX = 80;             // ползунок «количество лучей» 100% (x2 от прежних 40)
+    const RAY_GLOW_WIDTH = 3.2;           // ширина свечения вокруг луча (x от ширины луча)
     const RAY_LENGTH_SHARE = 0.62;       // длина лучей в долях полудиагонали экрана
     const RAY_GROW_MS = 6000;            // лучи вырастают из точки
     const RAY_TINT_START_MS = 5000;      // белые лучи начинают окрашиваться в 5 цветов
     const RAY_TINT_END_MS = 16000;
-    const RAY_FADE_START_MS = 14000;     // лучи тают, растворяясь в ореоле
-    const RAY_FADE_END_MS = 28000;
+    const RAY_FADE_FROM = 0.75;          // лучи светят всё растворение ореола и гаснут в его последней четверти
     const RAY_ROTATION_PERIOD_S = 120;   // один оборот свечения лучей
     const HALO_IN_START_MS = 9000;       // ореол проявляется из лучей
     const HALO_IN_END_MS = 24000;
@@ -585,6 +601,9 @@
     // Слои лучей вступления (рисуются один раз в buildIntroLayers).
     let introRaysWhite = null;
     let introRaysColor = null;
+    let introRaysGlowWhite = null;
+    let introRaysGlowColor = null;
+    let introRaysBuiltCount = -1;
     let pieces = [];
     let startedAt = 0;
     let field = null;
@@ -721,10 +740,11 @@
       'starSpeed', 'starContrast', 'starBrightness', 'starSpin', 'starForward',
       'planetMass', 'planetSpeed', 'planetDistance',
       'planet2Mass', 'planet2Speed', 'planet2Distance',
-      'sunAttraction', 'volume', 'frequency', 'delay', 'presence'
+      'sunAttraction', 'volume', 'frequency', 'delay', 'presence',
+      'raysCount', 'raysIntensity'
     ];
     // Чекбоксы: 0% = выключено, 100% = включено.
-    const CONFIG_CHECKBOX_IDS = ['starEnabled'];
+    const CONFIG_CHECKBOX_IDS = ['starEnabled', 'raysEnabled'];
 
     // Чтение config.txt намеренно вынесено из preload()/setup() p5 - если
     // fetch зависнет или упадёт (например, при открытии двойным кликом как
@@ -1517,7 +1537,7 @@
 
     // Рисует один слой лучей в отдельный холст (белые или окрашенные в 5 цветов).
     // Мягкие края — несколько наложенных клиньев разной ширины с малой альфой.
-    function renderRayLayer(colored) {
+    function renderRayLayer(colored, count, glow) {
       const halfDiag = Math.sqrt(width * width + height * height) / 2;
       const L = Math.ceil(halfDiag * RAY_LENGTH_SHARE);
       const cv = document.createElement('canvas');
@@ -1527,14 +1547,17 @@
       ctx.globalCompositeOperation = 'lighter';
       const light = color(PALETTE.light);
       const lr = red(light), lg = green(light), lb = blue2(light);
-      for (let i = 0; i < RAY_COUNT; i++) {
-        const angle = (i / RAY_COUNT) * Math.PI * 2 + (rayHash(i, 1) - 0.5) * 0.12;
+      for (let i = 0; i < count; i++) {
+        const angle = (i / count) * Math.PI * 2 + (rayHash(i, 1) - 0.5) * 0.12;
         const len = L * (0.55 + 0.45 * rayHash(i, 2));
         const width0 = 0.018 + 0.03 * rayHash(i, 3);   // угловая полуширина, рад
         const strength = 0.45 + 0.55 * rayHash(i, 4);
         const c = color(GLOW_COLORS[i % GLOW_COLORS.length]);
         const cr = red(c), cg = green(c), cb = blue2(c);
-        const layers = [[1.0, 0.10], [0.55, 0.16], [0.22, 0.26]];
+        // glow — широкий мягкий ореол вокруг луча (для «интенсивности»)
+        const layers = glow
+          ? [[RAY_GLOW_WIDTH, 0.05], [RAY_GLOW_WIDTH * 0.55, 0.07]]
+          : [[1.0, 0.10], [0.55, 0.16], [0.22, 0.26]];
         for (const [wMul, a0] of layers) {
           const a = a0 * strength;
           const w = width0 * wMul;
@@ -1559,13 +1582,22 @@
       return { canvas: cv, half: L };
     }
 
+    function raysControl(id, fallback) {
+      return readControl(document.getElementById(id), fallback);
+    }
+
+    // Слои перерисовываются только когда меняется количество лучей.
     function buildIntroLayers() {
+      const count = Math.round(RAY_COUNT_MAX * constrain(raysControl('raysCount', 60), 0, 100) / 100);
+      if (count === introRaysBuiltCount) return;
+      introRaysBuiltCount = count;
       try {
-        introRaysWhite = renderRayLayer(false);
-        introRaysColor = renderRayLayer(true);
+        introRaysWhite = renderRayLayer(false, count, false);
+        introRaysColor = renderRayLayer(true, count, false);
+        introRaysGlowWhite = renderRayLayer(false, count, true);
+        introRaysGlowColor = renderRayLayer(true, count, true);
       } catch (err) {
-        introRaysWhite = null;
-        introRaysColor = null;
+        introRaysWhite = introRaysColor = introRaysGlowWhite = introRaysGlowColor = null;
       }
     }
 
@@ -1702,8 +1734,12 @@
       }
 
       // --- лучи из центральной точки, медленно вращаются и растворяются в цветах
-      const rayFade = 1 - smooth01(span01(elapsed, RAY_FADE_START_MS, RAY_FADE_END_MS));
-      if (rayFade > 0.002 && introRaysWhite && introRaysColor) {
+      const raysOnInput = document.getElementById('raysEnabled');
+      const raysOn = !raysOnInput || raysOnInput.checked;
+      if (raysOn) buildIntroLayers();
+      const rayIntensity = constrain(raysControl('raysIntensity', 0), 0, 100) / 100;
+      const rayFade = 1 - smooth01((dissolveT - RAY_FADE_FROM) / (1 - RAY_FADE_FROM));
+      if (raysOn && introRaysBuiltCount > 0 && rayFade > 0.002 && introRaysWhite && introRaysColor) {
         const grow = smooth01(elapsed / RAY_GROW_MS);
         const tint = smooth01(span01(elapsed, RAY_TINT_START_MS, RAY_TINT_END_MS));
         const scale = lerp(0.04, 1, 1 - Math.pow(1 - grow, 2));
@@ -1726,11 +1762,19 @@
         drawLayer(introRaysColor, baseA * tint, rot, 1);
         drawLayer(introRaysWhite, baseA * (1 - tint) * 0.45, -rot * 0.6 + 0.07, 0.8);
         drawLayer(introRaysColor, baseA * tint * 0.45, -rot * 0.6 + 0.07, 0.8);
+        // интенсивность: 0 — как есть; 100 — яркость лучей x2 и свечение вокруг них x2
+        if (rayIntensity > 0) {
+          const ia = baseA * rayIntensity;
+          drawLayer(introRaysWhite, ia * (1 - tint), rot, 1);
+          drawLayer(introRaysColor, ia * tint, rot, 1);
+          drawLayer(introRaysGlowWhite, ia * (1 - tint), rot, 1);
+          drawLayer(introRaysGlowColor, ia * tint, rot, 1);
+        }
 
         // сама центральная точка
-        const coreR = 26;
+        const coreR = 26 * (1 + rayIntensity);
         const core = context.createRadialGradient(0, 0, 0, 0, 0, coreR);
-        const coreA = Math.min(1, (0.25 + 0.75 * grow)) * rayFade;
+        const coreA = Math.min(1, (0.25 + 0.75 * grow) * rayFade * (1 + 0.5 * rayIntensity));
         core.addColorStop(0, `rgba(255, 255, 255, ${coreA})`);
         core.addColorStop(0.18, `rgba(230, 232, 238, ${coreA * 0.8})`);
         core.addColorStop(1, 'rgba(230, 232, 238, 0)');
