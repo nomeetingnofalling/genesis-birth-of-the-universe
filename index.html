@@ -714,6 +714,25 @@
     // Чекбоксы: 0% = выключено, 100% = включено.
     const CONFIG_CHECKBOX_IDS = ['starEnabled'];
 
+    // Чтение config.txt намеренно вынесено из preload()/setup() p5 - если
+    // fetch зависнет или упадёт (например, при открытии двойным кликом как
+    // file://, где сосед-файл читать нельзя), это никак не блокирует p5:
+    // страница просто останется на value="" из HTML, без бесконечного
+    // "Loading...".
+    function loadConfigDefaultsFromFile() {
+      try {
+        fetch('config.txt')
+          .then((res) => (res && res.ok) ? res.text() : Promise.reject(new Error('config.txt: ' + (res && res.status))))
+          .then((text) => {
+            configDefaults = parseConfigDefaults(text.split(/\r?\n/));
+            applyConfigDefaults();
+          })
+          .catch(() => { configDefaults = null; });
+      } catch (err) {
+        configDefaults = null;
+      }
+    }
+
     function applyConfigDefaults() {
       if (!configDefaults) return;
       for (const id of CONFIG_SLIDER_IDS) {
@@ -739,6 +758,8 @@
       // документацией и не применяется автоматически.
     }
 
+    loadConfigDefaultsFromFile();
+
     function preload() {
       try {
         introGlyphImg = loadImage(
@@ -748,19 +769,6 @@
         );
       } catch (err) {
         introGlyphReady = false;
-      }
-      // config.txt лежит рядом с index.html. Через file:// (двойной клик)
-      // браузер обычно блокирует чтение соседних файлов - тогда просто
-      // остаёмся на value="" из HTML. При открытии через любой локальный
-      // сервер или GitHub Pages файл читается и его "default: NN%" сразу
-      // применяются к ползункам.
-      try {
-        loadStrings('config.txt',
-          (lines) => { configDefaults = parseConfigDefaults(lines); },
-          () => { configDefaults = null; }
-        );
-      } catch (err) {
-        configDefaults = null;
       }
     }
 
