@@ -464,7 +464,6 @@
       blue: '#5aa9ff'
     };
 
-    const INTRO_MS = 60000;              // появление точек из свечения (как было)
     const INTRO_START_ALPHA = 0.85;
 
     // Вступление: лучи из центральной точки -> ореол из 5 цветов -> растворение.
@@ -1743,8 +1742,9 @@
         context.restore();
       }
 
-      // ход появления точек — прежний, 60 секунд
-      const t = constrain(elapsed / INTRO_MS, 0, 1);
+      // точки проявляются в одном темпе с ореолом: от первых лучей
+      // до конца растворения (зависит от introDissolve в config.txt)
+      const t = constrain(elapsed / (HALO_DISSOLVE_START_MS + haloDissolveMs()), 0, 1);
       return t * t * (3 - 2 * t);
     }
 
