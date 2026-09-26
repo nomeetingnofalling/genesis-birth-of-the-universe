@@ -673,6 +673,71 @@
     let cloudMixG = 232;
     let cloudMixB = 238;
     let lastControlValues = {};
+    let configDefaults = null; // проценты по умолчанию из config.txt (null = файл недоступен, например при открытии двойным кликом)
+
+    // ===================== config.txt: проценты по умолчанию =====================
+    // Каждый блок конфига выглядит как "[Название] id=xxx" и где-то ниже —
+    // строка "default: NN%". Один id — одно число в процентах (0-100 =
+    // положение ползунка от левого до правого края, как описано в шапке
+    // самого config.txt). Если файл недоступен (страница открыта двойным
+    // кликом как file://, без сервера — так и задумано в README), просто
+    // остаёмся на значениях value="" из HTML ниже.
+    function parseConfigDefaults(lines) {
+      const result = {};
+      const headerRe = /^\[.*\]\s+id=([A-Za-z0-9_]+)/;
+      const defaultRe = /^\s*default:\s*([\d.]+)\s*%/;
+      let currentId = null;
+      for (const line of lines) {
+        const h = headerRe.exec(line);
+        if (h) { currentId = h[1]; continue; }
+        if (currentId) {
+          const d = defaultRe.exec(line);
+          if (d) {
+            result[currentId] = parseFloat(d[1]);
+            currentId = null;
+          }
+        }
+      }
+      return result;
+    }
+
+    // Обычные ползунки: id -> проценты (0-100), переводятся в собственный
+    // диапазон каждого input (у большинства min=0/max=100, у "speed" — 0/200).
+    const CONFIG_SLIDER_IDS = [
+      'density', 'speed', 'vortex', 'sphere', 'distance', 'cohesion', 'links',
+      'glow', 'trail', 'hsbMix',
+      'starSpeed', 'starContrast', 'starBrightness', 'starSpin', 'starForward',
+      'planetMass', 'planetSpeed', 'planetDistance',
+      'planet2Mass', 'planet2Speed', 'planet2Distance',
+      'sunAttraction', 'volume', 'frequency', 'delay', 'presence'
+    ];
+    // Чекбоксы: 0% = выключено, 100% = включено.
+    const CONFIG_CHECKBOX_IDS = ['starEnabled'];
+
+    function applyConfigDefaults() {
+      if (!configDefaults) return;
+      for (const id of CONFIG_SLIDER_IDS) {
+        const pct = configDefaults[id];
+        if (!Number.isFinite(pct)) continue;
+        const input = document.getElementById(id);
+        if (!input) continue;
+        const min = Number(input.min) || 0;
+        const max = Number(input.max) || 100;
+        const clamped = Math.min(100, Math.max(0, pct));
+        input.value = String(Math.round(min + (clamped / 100) * (max - min)));
+      }
+      for (const id of CONFIG_CHECKBOX_IDS) {
+        const pct = configDefaults[id];
+        if (!Number.isFinite(pct)) continue;
+        const input = document.getElementById(id);
+        if (!input) continue;
+        input.checked = pct >= 50;
+      }
+      // звук и микрофон — сознательно не трогаем: браузер разрешает
+      // включить AudioContext/микрофон только по жесту пользователя, поэтому
+      // "default" для soundToggle/presenceToggle в конфиге остаётся только
+      // документацией и не применяется автоматически.
+    }
 
     function preload() {
       try {
@@ -683,6 +748,19 @@
         );
       } catch (err) {
         introGlyphReady = false;
+      }
+      // config.txt лежит рядом с index.html. Через file:// (двойной клик)
+      // браузер обычно блокирует чтение соседних файлов - тогда просто
+      // остаёмся на value="" из HTML. При открытии через любой локальный
+      // сервер или GitHub Pages файл читается и его "default: NN%" сразу
+      // применяются к ползункам.
+      try {
+        loadStrings('config.txt',
+          (lines) => { configDefaults = parseConfigDefaults(lines); },
+          () => { configDefaults = null; }
+        );
+      } catch (err) {
+        configDefaults = null;
       }
     }
 
@@ -1187,6 +1265,7 @@
       sunAttractionInput = document.getElementById('sunAttraction');
       presenceToggleBtn = document.getElementById('presenceToggle');
       presenceToggleLabel = document.getElementById('presenceToggleLabel');
+      applyConfigDefaults();
       controlRangeInputs = Array.from(document.querySelectorAll('#controls input[type="range"]'));
       setupHsbWheel();
       setupChaosButton();
